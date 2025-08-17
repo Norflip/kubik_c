@@ -2,6 +2,10 @@
 #define UTILS_H
 #include <stdint.h>
 
+typedef uint8_t u8;
+typedef uint32_t u32;
+typedef uint64_t u64;
+
 #define u_align(x, a) (((x) + (a) - 1) / (a) * (a))
 #define u_offsetof(T, _m) ((size_t)&((T *)0)->_m)
 

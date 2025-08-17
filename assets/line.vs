@@ -1,6 +1,4 @@
-#version 450
-//layout(location = 0) in vec3 aPos;
-//layout(location = 1) in uint aColor;
+#version 460
 layout(location = 0) uniform mat4 vp;
 
 struct vertex {

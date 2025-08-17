@@ -13,6 +13,7 @@
 #include <cimgui_impl.h>
 
 #include "cam.h"
+#include "chunk.h"
 #include "gfx.h"
 
 #define DEFAULT_WINDOW_FACTOR_HEIGHT 0.8f
@@ -167,6 +168,23 @@ int main() {
     struct cam camera;
     cam_initialize(&camera, window_width, window_height, to_rad(45.0f));
 
+    struct chunk *c = malloc(sizeof(struct chunk));
+    chunk_initialize(c, 0, 0, 0);
+    tmp_fill_chunk_data(c, false);
+
+    void *mesh_data = NULL;
+    chunk_generate_mesh_data(c, &mesh_data); // crashar
+    chunk_upload_mesh_data(c, mesh_data);
+
+    GLuint chunk_program = gfx_load_program("chunk", asset_path("chunk.vs"), asset_path("chunk.fs"));
+
+    const char *atlas_paths[] = {
+        asset_path("stone.png"),
+    };
+
+    int added = 0;
+    GLuint chunk_atlas = gfx_load_atlas("atlas", atlas_paths, 1, 8, 8, 8, &added);
+
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
 
@@ -181,9 +199,9 @@ int main() {
         ImGui_ImplGlfw_NewFrame();
         igNewFrame();
 
-        // glEnable(GL_DEPTH_TEST);
-        // glEnable(GL_CULL_FACE);
-        // glCullFace(GL_BACK);
+        glEnable(GL_DEPTH_TEST);
+        glEnable(GL_CULL_FACE);
+        glCullFace(GL_BACK);
 #if 1
         glClearColor(clearColor.x, clearColor.y, clearColor.z, clearColor.w);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -194,8 +212,7 @@ int main() {
         glViewport(0, 0, window_width, window_height);
         glPolygonMode(GL_FRONT_AND_BACK, draw_wireframe ? GL_LINE : GL_FILL);
         {
-            dbg_line((vec3){0, 0, 0}, (vec3){1, 1, 1}, C32_BLUE);
-            dbg_aabb((vec3){0, 0, 0}, (vec3){16, 16, 16}, C32_CYAN);
+            dbg_aabb((vec3){0, 0, 0}, (vec3){C_SIZE, C_SIZE, C_SIZE}, C32_CYAN);
 
 #if DRAW_DEMO_TRIS
             glUseProgram(test_program);
@@ -205,6 +222,8 @@ int main() {
             glDrawArrays(GL_TRIANGLES, 0, 3);
 #endif
         }
+
+        tmp_draw_chunk(c, cam_view_proj_ptr(&camera), chunk_program, chunk_atlas, added);
 
         gfx_tmp_draw_lines(&camera);
 

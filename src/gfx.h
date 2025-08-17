@@ -19,5 +19,6 @@ void dbg_aabb(vec3 min, vec3 max, col32_t color);
 void gfx_tmp_draw_lines(struct cam *c);
 
 GLuint gfx_load_program(const char *name, const char *vspath, const char *fspath);
+GLuint gfx_load_atlas(const char *name, const char **paths, int count, int width, int height, int capacity, int *added_count);
 
 #endif

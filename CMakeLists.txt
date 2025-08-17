@@ -40,6 +40,7 @@ set(SRC_FILES
   src/maf.c
   src/cam.c
   src/gfx.c
+  src/chunk.c
 )
 
 add_executable(kubik ${SRC_FILES})
