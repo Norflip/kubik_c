@@ -1,7 +1,7 @@
 #version 460
 
 uniform sampler2DArray atlas_texarr;
-layout(location = 3) uniform uint atlas_count;
+layout(location = 3) uniform uint atlas_depth;
 
 const vec3 normal_lookup[6] = {
 vec3(0, 1, 0), vec3(0, - 1, 0), vec3(1, 0, 0), vec3(- 1, 0, 0), vec3(0, 0, 1), vec3(0, 0, - 1) };
@@ -21,7 +21,7 @@ vec3 get_array_uv(vec2 uv, uint layer, uint cap) {
 
 void main() {
     vec3 normal = normal_lookup[inData.face];
-    vec3 array_uv = get_array_uv(inData.uv, inData.texIndex, atlas_count);
+    vec3 array_uv = get_array_uv(inData.uv, inData.texIndex, atlas_depth);
     vec4 color = texture(atlas_texarr, array_uv);
 
     const float dir_shadow_strength = 0.4;
@@ -34,8 +34,8 @@ void main() {
     #endif
 
     color.rgb *= (1.0 - dir_shadow_strength)  + dir_shadow_strength * ndots;
-    //color.rgb *= 1.2;
+    color.rgb *= 1.2;
     color.rgb *= inData.ao;
 
-    frag_color = vec4(color.rgb, 1.0);
+    frag_color = vec4(clamp(color.rgb, 0, 1), 1.0);
 }

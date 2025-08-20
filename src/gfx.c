@@ -106,6 +106,12 @@ void dbg_aabb(vec3 min, vec3 max, col32_t color) {
     }
 }
 
+void dbg_cube(vec3 pos, vec3 ext, col32_t color) {
+    vec3 min = v3_sub(pos, ext);
+    vec3 max = v3_add(pos, ext);
+    dbg_aabb(min, max, color);
+}
+
 void gfx_tmp_draw_lines(struct cam *c) {
 
     if (l_count == 0)

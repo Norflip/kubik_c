@@ -11,12 +11,18 @@
 #define C_SIZEP3 (C_SIZEP * C_SIZEP * C_SIZEP)
 
 typedef uint8_t block_t;
+#define BLOCK_AIR 0
+#define block_is_solid(b) ((b) != BLOCK_AIR)
 
 // directions
-enum dir { DIR_LEFT, DIR_RIGHT, DIR_UP, DIR_DOWN, DIR_FORWARD, DIR_BACKWARD };
+enum dir { DIR_RIGHT = 0, DIR_LEFT, DIR_UP, DIR_DOWN, DIR_FRONT, DIR_BACK };
 #define opposite_dir(i) (i + (!((i) % 2) ? 1 : -1))
 
-static const int FACE_NORMALS[6 * 3] = {1, 0, 0, -1, 0, 0, 0, 1, 0, 0, -1, 0, 0, 0, 1, 0, 0, -1};
+typedef struct {
+    int x, y, z;
+} ivec3;
+
+static const ivec3 FACE_NORMALS[6] = {{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}};
 
 struct chunk {
     int _canary;
@@ -36,16 +42,15 @@ struct chunk {
 };
 
 void chunk_initialize(struct chunk *c, int x, int y, int z);
-void chunk_set_block(struct chunk *c, u8 x, u8 y, u8 z, block_t value);
-void chunk_set_corner (struct chunk *c, u8 x, u8 y, u8 z, block_t value);
-block_t chunk_get_block(struct chunk *c, u8 x, u8 y, u8 z);
+void chunk_set_block(struct chunk *c, int x, int y, int z, block_t value);
+block_t chunk_get_block(struct chunk *c, int x, int y, int z);
 
-void chunk_set_neighbour(struct chunk *c, int face, struct chunk *neighbour);
+void chunk_link(struct chunk *c, struct chunk *neighbour, int face);
 
 int chunk_generate_mesh_data(struct chunk *c, void **data);
 void chunk_upload_mesh_data(struct chunk *c, void *data);
 
-void tmp_draw_chunk (struct chunk *c, float* vp, GLuint program, GLuint atlas, int atlas_count);
+void tmp_draw_chunk(struct chunk *c, float *vp, GLuint program, GLuint atlas, int atlas_count);
 void tmp_fill_chunk_data(struct chunk *c, bool fill_padding);
 
 #endif // CHUNK_H

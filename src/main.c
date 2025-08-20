@@ -168,13 +168,33 @@ int main() {
     struct cam camera;
     cam_initialize(&camera, window_width, window_height, to_rad(45.0f));
 
-    struct chunk *c = malloc(sizeof(struct chunk));
-    chunk_initialize(c, 0, 0, 0);
-    tmp_fill_chunk_data(c, false);
+    struct chunk *chunk_1 = malloc(sizeof(struct chunk));
+    chunk_initialize(chunk_1, 0, 0, 0);
+    
+    struct chunk *chunk_2 = malloc(sizeof(struct chunk));
+    chunk_initialize(chunk_2, 1, 0, 0);
 
+    struct chunk *chunk_3 = malloc(sizeof(struct chunk));
+    chunk_initialize(chunk_3, -1, 0, 0);
+
+    chunk_link(chunk_1, chunk_2, DIR_RIGHT);
+    chunk_link(chunk_1, chunk_3, DIR_LEFT);
+
+    tmp_fill_chunk_data(chunk_1, false);
+    tmp_fill_chunk_data(chunk_2, false);
+    tmp_fill_chunk_data(chunk_3, false);
+ 
     void *mesh_data = NULL;
-    chunk_generate_mesh_data(c, &mesh_data); // crashar
-    chunk_upload_mesh_data(c, mesh_data);
+    chunk_generate_mesh_data(chunk_1, &mesh_data);
+    chunk_upload_mesh_data(chunk_1, mesh_data);
+
+    chunk_generate_mesh_data(chunk_2, &mesh_data); 
+    chunk_upload_mesh_data(chunk_2, mesh_data);
+    
+    chunk_generate_mesh_data(chunk_3, &mesh_data);
+    chunk_upload_mesh_data(chunk_3, mesh_data);
+    
+
 
     GLuint chunk_program = gfx_load_program("chunk", asset_path("chunk.vs"), asset_path("chunk.fs"));
 
@@ -182,8 +202,8 @@ int main() {
         asset_path("stone.png"),
     };
 
-    int added = 0;
-    GLuint chunk_atlas = gfx_load_atlas("atlas", atlas_paths, 1, 8, 8, 8, &added);
+    int atlas_depth = 0;
+    GLuint chunk_atlas = gfx_load_atlas("atlas", atlas_paths, 1, 8, 8, 8, &atlas_depth);
 
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
@@ -223,8 +243,10 @@ int main() {
 #endif
         }
 
-        tmp_draw_chunk(c, cam_view_proj_ptr(&camera), chunk_program, chunk_atlas, added);
-
+        tmp_draw_chunk(chunk_1, cam_view_proj_ptr(&camera), chunk_program, chunk_atlas, atlas_depth);
+        tmp_draw_chunk(chunk_2, cam_view_proj_ptr(&camera), chunk_program, chunk_atlas, atlas_depth);
+        tmp_draw_chunk(chunk_3, cam_view_proj_ptr(&camera), chunk_program, chunk_atlas, atlas_depth);
+        
         gfx_tmp_draw_lines(&camera);
 
         igSetNextWindowPos((ImVec2){0, 0}, ImGuiCond_Always, (ImVec2){0, 0});
