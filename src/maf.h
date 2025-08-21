@@ -23,6 +23,9 @@ typedef struct {
     float m[16];
 } mat4;
 
+// casts to float*
+#define maf_ptr(f) ((float*)&(f))
+
 // vec3
 #define V3_ZERO (vec3){0.0f, 0.0f, 0.0f}
 #define V3_UP (vec3){0.0f, 1.0f, 0.0f}

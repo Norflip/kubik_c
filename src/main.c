@@ -13,8 +13,8 @@
 #include <cimgui_impl.h>
 
 #include "cam.h"
-#include "chunk.h"
 #include "gfx.h"
+#include "world.h"
 
 #define DEFAULT_WINDOW_FACTOR_HEIGHT 0.8f
 #define DEFAULT_ASPECT_RATIO (4.0f / 3.0f)
@@ -26,6 +26,34 @@ static bool draw_wireframe = false;
 static void glfw_error_cb(int error, const char *description);
 static void glfw_key_callback(GLFWwindow *window, int key, int scancode, int action, int mods);
 static void GLAPIENTRY gl_debug_callback(GLenum source, GLenum type, GLuint id, GLenum severity, GLsizei length, const GLchar *message, const void *userParam);
+
+struct chunk_list {
+    struct chunk *chunks;
+    size_t count;
+    size_t capacity;
+};
+
+void init_chunk_list(struct chunk_list *list, int capacity) {
+    list->capacity = capacity;
+    list->chunks = malloc(sizeof(struct chunk) * capacity);
+    list->count = 0;
+}
+
+void add_chunk_list(struct chunk_list *list, struct chunk *s) {
+    if (list->count < list->capacity) {
+        list->chunks[list->count++] = *s;
+    }
+}
+
+struct chunk *find_chunk(struct chunk_list *list, int x, int y, int z) {
+    for (size_t i = 0; i < list->count; i++) {
+        struct chunk *c = &list->chunks[i];
+        if (c->x == x && c->y == y && c->z == z) {
+            return c;
+        }
+    }
+    return NULL;
+}
 
 int main() {
 
@@ -104,97 +132,14 @@ int main() {
     double start_time = glfwGetTime();
     double prev_frame = glfwGetTime();
 
-#define DRAW_DEMO_TRIS 0
-
-#if DRAW_DEMO_TRIS
-    // Setting up the triangle data
-    // ----------------------------
-
-    float vertices[] = {-1.0f, -1.0f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f, -1.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f};
-    GLuint attribPos = 0;
-    GLuint attribCol = 1;
-
-    /**************** VBO ***************/
-    unsigned int hctVBO; // hello colorful triangle vbo
-    // glGenBuffers(1, &VBO); // Way to go before openGl 4.5
-    // glBindBuffer(GL_ARRAY_BUFFER, VBO); // Binding to openGl context was necessary
-    //   replaced with:
-    glCreateBuffers(1, &hctVBO); // uses DSA. This is the way.
-
-    // glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
-    //   replaced with:
-    glNamedBufferStorage(hctVBO, sizeof(vertices), vertices, GL_DYNAMIC_STORAGE_BIT);
-    //                    ^^^  needed, since there is no context binding.
-
-    /**************** VAO ***************/
-    unsigned int hctVAO;
-    // glGenVertexArrays(1, &VAO);
-    // glBindVertexArray(VAO);
-    //   replaced with:
-    glCreateVertexArrays(1, &hctVAO); // This is the way.
-
-    // As there is, by definition, no context binding in DSA, then we need to
-    //"bind" vao with vbo explicitely, like linking 2 indexes in a database.
-
-    GLuint vaoBindingPoint = 0;                   // A binding point in VAO. See GL_MAX_VERTEX_ATTRIB_BINDINGS
-    glVertexArrayVertexBuffer(hctVAO,             // vao to bind
-                              vaoBindingPoint,    // Could be 1, 2... if there were several vbo to source.
-                              hctVBO,             // VBO to bound at "vaoBindingPoint".
-                              0,                  // offset of the first element in the buffer hctVBO.
-                              6 * sizeof(float)); // stride == 3 position floats + 3 color floats.
-
-    // glEnableVertexAttribArray(attribPos);
-    // glEnableVertexAttribArray(attribCol);
-    //   replaced with:
-    glEnableVertexArrayAttrib(hctVAO, attribPos); // Need to precise vao, as there is no context binding in DSA style
-    glEnableVertexArrayAttrib(hctVAO, attribCol); // Meaning no current vao is bound to the opengl context.
-
-    // glVertexAttribPointer(attribPos, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)0);
-    // glVertexAttribPointer(attribCol, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)( 3*sizeof(float) ));
-    //   replaced with:
-    glVertexArrayAttribFormat(hctVAO, attribPos, 3, GL_FLOAT, false, 0); // Need to precise vao, as there is no context binding in DSA
-    glVertexArrayAttribFormat(hctVAO, attribCol, 3, GL_FLOAT, false,
-                              3 * sizeof(float)); // https://www.khronos.org/registry/OpenGL-Refpages/gl4/html/glVertexAttribFormat.xhtml
-
-    // Explicit binding of an attribute to a vao binding point
-    glVertexArrayAttribBinding(hctVAO, attribPos, vaoBindingPoint);
-    glVertexArrayAttribBinding(hctVAO, attribCol, vaoBindingPoint);
-
-    GLuint test_program = gfx_load_program("test", asset_path("hello.vs"), asset_path("hello.fs"));
-#endif
 
     gfx_initialize();
 
     struct cam camera;
     cam_initialize(&camera, window_width, window_height, to_rad(45.0f));
 
-    struct chunk *chunk_1 = malloc(sizeof(struct chunk));
-    chunk_initialize(chunk_1, 0, 0, 0);
-    
-    struct chunk *chunk_2 = malloc(sizeof(struct chunk));
-    chunk_initialize(chunk_2, 1, 0, 0);
-
-    struct chunk *chunk_3 = malloc(sizeof(struct chunk));
-    chunk_initialize(chunk_3, -1, 0, 0);
-
-    chunk_link(chunk_1, chunk_2, DIR_RIGHT);
-    chunk_link(chunk_1, chunk_3, DIR_LEFT);
-
-    tmp_fill_chunk_data(chunk_1, false);
-    tmp_fill_chunk_data(chunk_2, false);
-    tmp_fill_chunk_data(chunk_3, false);
- 
-    void *mesh_data = NULL;
-    chunk_generate_mesh_data(chunk_1, &mesh_data);
-    chunk_upload_mesh_data(chunk_1, mesh_data);
-
-    chunk_generate_mesh_data(chunk_2, &mesh_data); 
-    chunk_upload_mesh_data(chunk_2, mesh_data);
-    
-    chunk_generate_mesh_data(chunk_3, &mesh_data);
-    chunk_upload_mesh_data(chunk_3, mesh_data);
-    
-
+    struct world world;
+    world_init_demo(&world);
 
     GLuint chunk_program = gfx_load_program("chunk", asset_path("chunk.vs"), asset_path("chunk.fs"));
 
@@ -231,22 +176,7 @@ int main() {
 
         glViewport(0, 0, window_width, window_height);
         glPolygonMode(GL_FRONT_AND_BACK, draw_wireframe ? GL_LINE : GL_FILL);
-        {
-            dbg_aabb((vec3){0, 0, 0}, (vec3){C_SIZE, C_SIZE, C_SIZE}, C32_CYAN);
-
-#if DRAW_DEMO_TRIS
-            glUseProgram(test_program);
-            float *view_proj = cam_view_proj_ptr(&camera);
-            glUniformMatrix4fv(glGetUniformLocation(test_program, "vp"), 1, GL_FALSE, view_proj);
-            glBindVertexArray(hctVAO);
-            glDrawArrays(GL_TRIANGLES, 0, 3);
-#endif
-        }
-
-        tmp_draw_chunk(chunk_1, cam_view_proj_ptr(&camera), chunk_program, chunk_atlas, atlas_depth);
-        tmp_draw_chunk(chunk_2, cam_view_proj_ptr(&camera), chunk_program, chunk_atlas, atlas_depth);
-        tmp_draw_chunk(chunk_3, cam_view_proj_ptr(&camera), chunk_program, chunk_atlas, atlas_depth);
-        
+        tmp_world_draw(&world, cam_view_proj(&camera), chunk_program, chunk_atlas, atlas_depth);
         gfx_tmp_draw_lines(&camera);
 
         igSetNextWindowPos((ImVec2){0, 0}, ImGuiCond_Always, (ImVec2){0, 0});

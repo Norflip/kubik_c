@@ -21,6 +21,7 @@ void cam_look_at(struct cam *cam, vec3 pos);
 vec3 cam_relative_vec(const struct cam *cam, vec3 v);
 
 
+mat4 cam_view_proj(struct cam *cam);
 float *cam_view_proj_ptr(struct cam *cam);
 
 void cam_fps_update(struct cam *cam, void *window, double dt);

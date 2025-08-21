@@ -53,6 +53,14 @@ vec3 cam_relative_vec(const struct cam *cam, vec3 v) {
     return quat_mulv(cam->rot, v);
 }
 
+mat4 cam_view_proj(struct cam *cam) {
+    if (cam->dirty) {
+        update_view(cam);
+        cam->dirty = false;
+    }
+    return cam->view_proj;
+}
+
 float *cam_view_proj_ptr(struct cam *cam) {
     if (cam->dirty) {
         update_view(cam);
