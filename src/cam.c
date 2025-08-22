@@ -9,6 +9,54 @@
 #define FPS_BOOST_MULTIPLIER 4.0f
 #define FPS_BASE_SPEED 8.0f
 
+static void create_frustum(mat4 m, vec4 *frustum) {
+    // -X plane
+    frustum[0].x = m.m[3] + m.m[0];
+    frustum[0].y = m.m[7] + m.m[4];
+    frustum[0].z = m.m[11] + m.m[8];
+    frustum[0].w = m.m[15] + m.m[12];
+
+    // +X plane
+    frustum[1].x = m.m[3] - m.m[0];
+    frustum[1].y = m.m[7] - m.m[4];
+    frustum[1].z = m.m[11] - m.m[8];
+    frustum[1].w = m.m[15] - m.m[12];
+
+    // -Y plane
+    frustum[2].x = m.m[3] + m.m[1];
+    frustum[2].y = m.m[7] + m.m[5];
+    frustum[2].z = m.m[11] + m.m[9];
+    frustum[2].w = m.m[15] + m.m[13];
+
+    // +Y plane
+    frustum[3].x = m.m[3] - m.m[1];
+    frustum[3].y = m.m[7] - m.m[5];
+    frustum[3].z = m.m[11] - m.m[9];
+    frustum[3].w = m.m[15] - m.m[13];
+
+    // inverted Z dir for opengl
+    // -Z plane
+    frustum[4].x = m.m[3] + m.m[2];
+    frustum[4].y = m.m[7] + m.m[6];
+    frustum[4].z = m.m[11] + m.m[10];
+    frustum[4].w = m.m[15] + m.m[14];
+
+    // +Z plane
+    frustum[5].x = m.m[3] - m.m[2];
+    frustum[5].y = m.m[7] - m.m[6];
+    frustum[5].z = m.m[11] - m.m[10];
+    frustum[5].w = m.m[15] - m.m[14];
+
+    // normalize planes
+    for (int i = 0; i < 6; i++) {
+        float length = sqrtf(frustum[i].x * frustum[i].x + frustum[i].y * frustum[i].y + frustum[i].z * frustum[i].z);
+        frustum[i].x /= length;
+        frustum[i].y /= length;
+        frustum[i].z /= length;
+        frustum[i].w /= length;
+    }
+}
+
 static void update_projection(struct cam *cam) {
     cam->proj = m4_perspective(cam->fov, cam->aspect, CAM_NEAR_Z, CAM_FAR_Z);
     cam->dirty = true;
@@ -17,6 +65,7 @@ static void update_projection(struct cam *cam) {
 static void update_view(struct cam *cam) {
     cam->view = m4_look_dir(cam->pos, cam_relative_vec(cam, V3_FORWARD), V3_UP);
     cam->view_proj = m4_mul(cam->proj, cam->view);
+    create_frustum(cam->view_proj, cam->frustum);
 }
 
 void cam_initialize(struct cam *cam, int width, int height, float fov) {
@@ -53,19 +102,47 @@ vec3 cam_relative_vec(const struct cam *cam, vec3 v) {
     return quat_mulv(cam->rot, v);
 }
 
-mat4 cam_view_proj(struct cam *cam) {
+void cam_update(struct cam *cam) {
     if (cam->dirty) {
         update_view(cam);
         cam->dirty = false;
     }
+}
+
+bool cam_aabb_in_view(const struct cam *cam, vec3 min, vec3 max) {
+    vec3 corners[8];
+    corners[0] = (vec3){min.x, min.y, min.z};
+    corners[1] = (vec3){min.x, min.y, max.z};
+    corners[2] = (vec3){min.x, max.y, min.z};
+    corners[3] = (vec3){min.x, max.y, max.z};
+    corners[4] = (vec3){max.x, min.y, min.z};
+    corners[5] = (vec3){max.x, min.y, max.z};
+    corners[6] = (vec3){max.x, max.y, min.z};
+    corners[7] = (vec3){max.x, max.y, max.z};
+
+    for (int i = 0; i < 6; i++) {
+        vec4 plane = cam->frustum[i];
+        int out = 0;
+        for (int j = 0; j < 8; j++) {
+            vec3 point = corners[j];
+            float dst = plane.x * point.x + plane.y * point.y + plane.z * point.z + plane.w;
+            if (dst < 0.0f)
+                out++;
+        }
+
+        if (out == 8)
+            return false;
+    }
+    return true;
+}
+
+mat4 cam_view_proj(struct cam *cam) {
+    cam_update(cam);
     return cam->view_proj;
 }
 
 float *cam_view_proj_ptr(struct cam *cam) {
-    if (cam->dirty) {
-        update_view(cam);
-        cam->dirty = false;
-    }
+    cam_update(cam);
     return cam->view_proj.m;
 }
 

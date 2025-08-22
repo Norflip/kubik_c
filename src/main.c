@@ -104,7 +104,6 @@ int main() {
     double start_time = glfwGetTime();
     double prev_frame = glfwGetTime();
 
-
     gfx_initialize();
 
     struct cam camera;
@@ -116,13 +115,15 @@ int main() {
     GLuint chunk_program = gfx_load_program("chunk", asset_path("chunk.vs"), asset_path("chunk.fs"));
 
     const char *atlas_paths[] = {
-        asset_path("blocks/base.png"),
-        asset_path("blocks/stone.png"),
-        asset_path("blocks/dirt.png"),
+        asset_path("blocks/base.png"), // 0
+        asset_path("blocks/stone.png"), // 1
+        asset_path("blocks/dirt.png"), // 2
+        asset_path("blocks/grass_top.png"), // 3
+        asset_path("blocks/grass_side.png"), // 4
     };
 
     int atlas_depth = 0;
-    GLuint chunk_atlas = gfx_load_atlas("atlas", atlas_paths, 3, 8, 8, 8, &atlas_depth);
+    GLuint chunk_atlas = gfx_load_atlas("atlas", atlas_paths, 5, 8, 8, 5, &atlas_depth);
 
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
@@ -150,7 +151,7 @@ int main() {
 
         glViewport(0, 0, window_width, window_height);
         glPolygonMode(GL_FRONT_AND_BACK, draw_wireframe ? GL_LINE : GL_FILL);
-        tmp_world_draw(&world, cam_view_proj(&camera), chunk_program, chunk_atlas, atlas_depth);
+        tmp_world_draw(&world, &camera, chunk_program, chunk_atlas, atlas_depth);
         gfx_tmp_draw_lines(&camera);
 
         igSetNextWindowPos((ImVec2){0, 0}, ImGuiCond_Always, (ImVec2){0, 0});

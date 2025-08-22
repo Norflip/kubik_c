@@ -1,4 +1,5 @@
 #include "world.h"
+#include "gfx.h"
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -17,6 +18,7 @@ void world_init_demo(struct world *w) {
     w->chunk_count = 0;
     w->chunk_cap = 3 * 3 * 3;
     w->chunks = malloc(sizeof(struct chunk) * w->chunk_cap);
+    glGenVertexArrays(1, &w->empty_vao);
 
     for (int z = 0; z < 3; z++) {
         for (int y = 0; y < 3; y++) {
@@ -65,14 +67,17 @@ struct chunk *world_get_chunk(struct world *w, int x, int y, int z) {
     return NULL;
 }
 
-void tmp_world_draw(struct world *w, mat4 vp, GLuint program, GLuint atlas, int atlas_depth) {
+void tmp_world_draw(struct world *w, struct cam *cam, GLuint program, GLuint atlas, int atlas_depth) {
 
-    static GLuint empty_vao = GL_NONE;
-    if (empty_vao == GL_NONE)
-        glGenVertexArrays(1, &empty_vao);
+    if (w->chunk_count == 0)
+        return;
 
+    w->draw_count = 0;
+    cam_update(cam);
+
+  
     glUseProgram(program);
-    glUniformMatrix4fv(glGetUniformLocation(program, "vp"), 1, GL_FALSE, maf_ptr(vp));
+    glUniformMatrix4fv(glGetUniformLocation(program, "vp"), 1, GL_FALSE, cam_view_proj_ptr(cam));
     glUniform1ui(glGetUniformLocation(program, "atlas_depth"), (u32)atlas_depth);
     glBindTextureUnit(0, atlas);
 
@@ -80,10 +85,18 @@ void tmp_world_draw(struct world *w, mat4 vp, GLuint program, GLuint atlas, int 
         struct chunk *c = w->chunks[i];
         if (c->quad_count == 0 || c->quad_buffer == GL_NONE)
             continue;
+        vec3 min = {(float)c->x * C_SIZE, (float)c->y * C_SIZE, (float)c->z * C_SIZE};
+        vec3 max = {(float)(c->x + 1) * C_SIZE, (float)(c->y + 1) * C_SIZE, (float)(c->z + 1) * C_SIZE};
+
+        if (!cam_aabb_in_view(cam, min, max))
+            continue;
 
         glUniform3i(glGetUniformLocation(program, "chunk_pos"), (u32)c->x * C_SIZE, (u32)c->y * C_SIZE, (u32)c->z * C_SIZE);
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, c->quad_buffer);
-        glBindVertexArray(empty_vao);
+        glBindVertexArray(w->empty_vao);
         glDrawArrays(GL_TRIANGLES, 0, c->quad_count * 6);
+
+        dbg_aabb(min, max, C32_CYAN);
+        w->draw_count++;
     }
 }

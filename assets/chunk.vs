@@ -30,6 +30,16 @@ const int tris_order [6] = {3, 2, 1, 3, 1, 0}; // order of the 4 corners to crea
 const int flipped_tris_order [6] = {2, 1, 0, 2, 0, 3};
 const vec2 corner_uv_lookup [4] = vec2[4] (vec2(0,1), vec2(1,1), vec2(1,0), vec2(0,0));
 
+uint rng_value (uint seed) {
+    uint x = seed;
+    x += (x << 10);
+    x ^= (x >> 6);
+    x += (x << 3);
+    x ^= (x >> 11);
+    x += (x << 15);
+    return x;
+}
+
 #if 1
 const float AO_VALUES[4] = float[](0.60, 0.70, 0.85, 1.0);
 #else 
@@ -82,6 +92,8 @@ void main () {
 
     outData.texIndex = q.tex;
     outData.face = face;
+    //uint uv_corner_offset = rng_value(idx / 6) % 4;
+    //outData.uv = corner_uv_lookup[(uv_corner_offset + corner_idx) % 4];
     outData.uv = corner_uv_lookup[corner_idx];
     outData.ao = clamp(AO_VALUES[get_quad_ao(q, corner_idx)] + 0.1f, 0.0f, 1.0f);
 }

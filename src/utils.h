@@ -20,4 +20,14 @@ typedef uint32_t col32_t;
 #define C32_CYAN 0x00FFFFFF
 #define C32_MAGENTA 0xFF00FFFF
 
+
+// directions
+typedef struct {
+    int x, y, z;
+} ivec3;
+
+enum dir { DIR_RIGHT = 0, DIR_LEFT, DIR_UP, DIR_DOWN, DIR_FRONT, DIR_BACK };
+#define opposite_dir(i) (i + (!((i) % 2) ? 1 : -1))
+static const ivec3 FACE_NORMALS[6] = {{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}};
+
 #endif // UTILS_H

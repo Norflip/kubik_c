@@ -1,8 +1,8 @@
 #ifndef CHUNK_H
 #define CHUNK_H
+#include "block.h"
 #include "maf.h"
 #include "utils.h"
-#include "block.h"
 #include <glad/gl.h>
 #include <stdbool.h>
 
@@ -10,16 +10,6 @@
 #define C_SIZEP (C_SIZE + 2)
 #define C_SIZEP2 (C_SIZEP * C_SIZEP)
 #define C_SIZEP3 (C_SIZEP * C_SIZEP * C_SIZEP)
-
-// directions
-enum dir { DIR_RIGHT = 0, DIR_LEFT, DIR_UP, DIR_DOWN, DIR_FRONT, DIR_BACK };
-#define opposite_dir(i) (i + (!((i) % 2) ? 1 : -1))
-
-typedef struct {
-    int x, y, z;
-} ivec3;
-
-static const ivec3 FACE_NORMALS[6] = {{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}};
 
 struct chunk {
     int _canary;
@@ -44,8 +34,10 @@ block_t chunk_get_block(struct chunk *c, int x, int y, int z);
 
 void chunk_link(struct chunk *c, struct chunk *neighbour, int face);
 
+// allocates memory for the buffer, frees the memory in upload_mesh_data
 int chunk_generate_mesh_data(struct chunk *c, void **data);
 void chunk_upload_mesh_data(struct chunk *c, void *data);
+
 void tmp_fill_chunk_data(struct chunk *c, bool fill_padding);
 
 #endif // CHUNK_H

@@ -9,6 +9,7 @@ struct cam {
     float fov, aspect;
     mat4 proj, view;
     mat4 view_proj;
+    vec4 frustum[6];
     bool dirty;
 };
 
@@ -17,9 +18,10 @@ void cam_resize(struct cam *cam, int width, int height);
 void cam_set_transform(struct cam *cam, vec3 position, vec4 rotation);
 void cam_translate(struct cam *cam, vec3 transl);
 void cam_look_at(struct cam *cam, vec3 pos);
-
 vec3 cam_relative_vec(const struct cam *cam, vec3 v);
+void cam_update(struct cam *cam);
 
+bool cam_aabb_in_view (const struct cam *cam, vec3 min, vec3 max);
 
 mat4 cam_view_proj(struct cam *cam);
 float *cam_view_proj_ptr(struct cam *cam);

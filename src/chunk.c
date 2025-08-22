@@ -1,5 +1,4 @@
 #include "chunk.h"
-#include "gfx.h"
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -253,11 +252,9 @@ int chunk_generate_mesh_data(struct chunk *c, void **data) {
                     int oz = z + normal.z;
                     int o_idx = zxy_index(ox + 1, oy + 1, oz + 1);
 
-                    // Check if the neighbour block is empty or out of bounds
-                    if (!block_is_solid(c->blocks[o_idx])) {
+                    if (block_create_face(block, face, c->blocks[o_idx])) {
                         bool flip = false;
                         get_face_ao(c, x, y, z, face, ao, &flip);
-
                         struct mesh_quad quad = make_quad(x, y, z, face, block, ao, flip);
                         quads[added++] = quad;
                     }
@@ -291,22 +288,22 @@ void tmp_fill_chunk_data(struct chunk *c, bool fill_padding) {
     for (int z = 0; z < C_SIZE; z++) {
         for (int x = 0; x < C_SIZE; x++) {
             int height = 10;
-
             if (x > 2 && x < 12 && z > 2 && z < 12)
                 height = 4;
-
             if (x > 14 && x < 20 && z > 14 && z < 20)
                 height = C_SIZE;
-
             for (int y = 0; y < height; y++) {
                 int index = zxy_index(x, y, z);
 
                 block_t block = BLOCK_STONE;
                 if (y == 0)
                     block = BLOCK_BASE;
-                
+
                 if (x > 14 && x < 20 && z > 14 && z < 20)
                     block = BLOCK_DIRT;
+
+                if (y == height - 1)
+                    block = BLOCK_GRASS;
 
                 chunk_set_block(c, x, y, z, block);
             }
