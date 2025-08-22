@@ -115,7 +115,7 @@ void chunk_set_block(struct chunk *c, int x, int y, int z, block_t value) {
     c->dirty = true;
 
     if (on_border(x, y, z)) {
-        
+
         // Create boundary bitmask and count boundaries
         uint8_t boundary_mask = 0;
         if (x == C_SIZE - 1)
@@ -191,7 +191,10 @@ static struct mesh_quad make_quad(int x, int y, int z, int face, block_t block, 
     quad.pos_face |= (face & 0x7) << 18;
     quad.pos_face |= ((ao[0] & 0x3) << 21) | ((ao[1] & 0x3) << 23) | ((ao[2] & 0x3) << 25) | ((ao[3] & 0x3) << 27);
     quad.pos_face |= (flipped & 0x1) << 29;
-    quad.texid = 0; // block_get_texture_id(block, face);
+
+    int texture_index = block_texture_index(block, face);
+    assert(texture_index != NO_TEXTURE_INDEX);
+    quad.texid = texture_index;
     return quad;
 }
 
@@ -280,8 +283,6 @@ void chunk_upload_mesh_data(struct chunk *c, void *data) {
     free(data);
 }
 
-void tmp_draw_chunk(struct chunk *c, float *vp, GLuint program, GLuint atlas, int atlas_depth) {}
-
 void tmp_fill_chunk_data(struct chunk *c, bool fill_padding) {
 
     ASSERT_CHUNK(c);
@@ -299,7 +300,15 @@ void tmp_fill_chunk_data(struct chunk *c, bool fill_padding) {
 
             for (int y = 0; y < height; y++) {
                 int index = zxy_index(x, y, z);
-                chunk_set_block(c, x, y, z, 1);
+
+                block_t block = BLOCK_STONE;
+                if (y == 0)
+                    block = BLOCK_BASE;
+                
+                if (x > 14 && x < 20 && z > 14 && z < 20)
+                    block = BLOCK_DIRT;
+
+                chunk_set_block(c, x, y, z, block);
             }
         }
     }
@@ -309,7 +318,7 @@ void tmp_fill_chunk_data(struct chunk *c, bool fill_padding) {
             for (int y = 0; y < C_SIZE; y++) {
                 int world_y = y + (c->y * C_SIZE);
                 if (world_y < 10)
-                    chunk_set_block(c, x, y, z, 1);
+                    chunk_set_block(c, x, y, z, BLOCK_STONE);
             }
         }
     }
@@ -321,7 +330,7 @@ void tmp_fill_chunk_data(struct chunk *c, bool fill_padding) {
                 for (int x = -1; x <= C_SIZE; x++) {
                     if (x == -1 || y == -1 || z == -1 || x == C_SIZE || y == C_SIZE || z == C_SIZE) {
                         int index = zxy_index(x + 1, y + 1, z + 1);
-                        c->blocks[index] = 1;
+                        c->blocks[index] = BLOCK_STONE;
                     }
                 }
             }

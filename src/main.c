@@ -27,34 +27,6 @@ static void glfw_error_cb(int error, const char *description);
 static void glfw_key_callback(GLFWwindow *window, int key, int scancode, int action, int mods);
 static void GLAPIENTRY gl_debug_callback(GLenum source, GLenum type, GLuint id, GLenum severity, GLsizei length, const GLchar *message, const void *userParam);
 
-struct chunk_list {
-    struct chunk *chunks;
-    size_t count;
-    size_t capacity;
-};
-
-void init_chunk_list(struct chunk_list *list, int capacity) {
-    list->capacity = capacity;
-    list->chunks = malloc(sizeof(struct chunk) * capacity);
-    list->count = 0;
-}
-
-void add_chunk_list(struct chunk_list *list, struct chunk *s) {
-    if (list->count < list->capacity) {
-        list->chunks[list->count++] = *s;
-    }
-}
-
-struct chunk *find_chunk(struct chunk_list *list, int x, int y, int z) {
-    for (size_t i = 0; i < list->count; i++) {
-        struct chunk *c = &list->chunks[i];
-        if (c->x == x && c->y == y && c->z == z) {
-            return c;
-        }
-    }
-    return NULL;
-}
-
 int main() {
 
     printf("Hello, from Kubik!\n");
@@ -144,11 +116,13 @@ int main() {
     GLuint chunk_program = gfx_load_program("chunk", asset_path("chunk.vs"), asset_path("chunk.fs"));
 
     const char *atlas_paths[] = {
-        asset_path("stone.png"),
+        asset_path("blocks/base.png"),
+        asset_path("blocks/stone.png"),
+        asset_path("blocks/dirt.png"),
     };
 
     int atlas_depth = 0;
-    GLuint chunk_atlas = gfx_load_atlas("atlas", atlas_paths, 1, 8, 8, 8, &atlas_depth);
+    GLuint chunk_atlas = gfx_load_atlas("atlas", atlas_paths, 3, 8, 8, 8, &atlas_depth);
 
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
