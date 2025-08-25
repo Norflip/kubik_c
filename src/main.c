@@ -27,6 +27,8 @@ static void glfw_error_cb(int error, const char *description);
 static void glfw_key_callback(GLFWwindow *window, int key, int scancode, int action, int mods);
 static void GLAPIENTRY gl_debug_callback(GLenum source, GLenum type, GLuint id, GLenum severity, GLsizei length, const GLchar *message, const void *userParam);
 
+static void world_ui_stats(struct world *world);
+
 int main() {
 
     printf("Hello, from Kubik!\n");
@@ -115,10 +117,10 @@ int main() {
     GLuint chunk_program = gfx_load_program("chunk", asset_path("chunk.vs"), asset_path("chunk.fs"));
 
     const char *atlas_paths[] = {
-        asset_path("blocks/base.png"), // 0
-        asset_path("blocks/stone.png"), // 1
-        asset_path("blocks/dirt.png"), // 2
-        asset_path("blocks/grass_top.png"), // 3
+        asset_path("blocks/base.png"),       // 0
+        asset_path("blocks/stone.png"),      // 1
+        asset_path("blocks/dirt.png"),       // 2
+        asset_path("blocks/grass_top.png"),  // 3
         asset_path("blocks/grass_side.png"), // 4
     };
 
@@ -161,6 +163,8 @@ int main() {
             igText("camera position: (%.1f, %.1f, %.1f)", camera.pos.x, camera.pos.y, camera.pos.z);
             vec3 cam_rot_euler = quat_to_euler(camera.rot);
             igText("camera rotation: (%.1f, %.1f, %.1f)", cam_rot_euler.x, cam_rot_euler.y, cam_rot_euler.z);
+
+            world_ui_stats(&world);
         }
         igEnd();
 
@@ -219,4 +223,11 @@ static void GLAPIENTRY gl_debug_callback(GLenum source, GLenum type, GLuint id, 
 #    endif
     }
 #endif
+}
+
+void world_ui_stats(struct world *world) {
+    igSeparatorText("World");
+    igText("Chunk Count: %d", world->chunk_count);
+    igText("Hunk Count: %d", world->hunk_count);
+    igText("Draw Calls: %d", world->draw_count);
 }

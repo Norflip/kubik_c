@@ -193,7 +193,6 @@ void cam_fps_update(struct cam *cam, void *window, double dt) {
         cam->rot = quat_mul(cam->rot, quat_axis_angle(up, to_rad(-rot_x)));
         cam->rot = quat_mul(cam->rot, quat_axis_angle(V3_RIGHT, to_rad(-rot_y)));
         cam->dirty = true;
-        cam->dirty = true;
     }
 
     int zt = 0;

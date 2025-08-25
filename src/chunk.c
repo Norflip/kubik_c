@@ -32,7 +32,7 @@ static bool on_border(int x, int y, int z) {
     return (x == 0 || x == (C_SIZE - 1) || y == 0 || y == (C_SIZE - 1) || z == 0 || z == (C_SIZE - 1));
 }
 
-static inline int zxy_index(int x, int y, int z) {
+static inline int zxy_index_l(int x, int y, int z) {
     return z + (x * C_SIZEP) + (y * C_SIZEP2);
 }
 
@@ -84,15 +84,61 @@ static inline struct chunk *find_neighbor(struct chunk *chunk, int dx, int dy, i
     return current;
 }
 
-static void set_padded_block(struct chunk *c, int x, int y, int z, block_t value) {
-    if (!on_padding(x, y, z)) {
-        fprintf(stderr, "set_padded_block: position (%d, %d, %d) is out of bounds in chunk (%d, %d, %d)\n", x, y, z, c->x, c->y, c->z);
-        return;
-    }
+static void try_set_padded_block(struct chunk *c, int x, int y, int z, block_t value) {
 
-    int idx = zxy_index(x + 1, y + 1, z + 1);
-    c->blocks[idx] = value;
-    c->dirty = true;
+    if (!on_border(x, y, z))
+        return;
+
+    uint8_t boundary_mask = 0;
+    if (x == C_SIZE - 1)
+        boundary_mask |= (1 << DIR_RIGHT); // +X boundary
+    if (x == 0)
+        boundary_mask |= (1 << DIR_LEFT); // -X boundary
+    if (y == C_SIZE - 1)
+        boundary_mask |= (1 << DIR_UP); // +Y boundary
+    if (y == 0)
+        boundary_mask |= (1 << DIR_DOWN); // -Y boundary
+    if (z == C_SIZE - 1)
+        boundary_mask |= (1 << DIR_FRONT); // +Z boundary
+    if (z == 0)
+        boundary_mask |= (1 << DIR_BACK); // -Z boundary
+
+    struct chunk* n;
+    for (int face = 0; face < 6; face++) {
+        n = c->neighbours[face];
+        if ((boundary_mask & (1 << face)) && n) {
+            int tx = x;
+            int ty = y;
+            int tz = z;
+
+            // Adjust target coordinate for the specific face, slow?
+            switch (face) {
+            case DIR_RIGHT:
+                tx = -1;
+                break; // +X face
+            case DIR_LEFT:
+                tx = C_SIZE;
+                break; // -X face
+            case DIR_UP:
+                ty = -1;
+                break; // +Y face
+            case DIR_DOWN:
+                ty = C_SIZE;
+                break; // -Y face
+            case DIR_FRONT:
+                tz = -1;
+                break; // +Z face
+            case DIR_BACK:
+                tz = C_SIZE;
+                break; // -Z face
+            }
+
+           // set_padded_block(c->neighbours[face], tx, ty, tz, value);
+            int idx = zxy_index_l(tx + 1, ty + 1, tz + 1);
+            n->blocks[idx] = value;
+            n->dirty = true;
+        }
+    }
 }
 
 void chunk_set_block(struct chunk *c, int x, int y, int z, block_t value) {
@@ -102,7 +148,7 @@ void chunk_set_block(struct chunk *c, int x, int y, int z, block_t value) {
         return;
     }
 
-    const int index = zxy_index(x + 1, y + 1, z + 1);
+    const int index = zxy_index_l(x + 1, y + 1, z + 1);
     block_t old_value = c->blocks[index];
     if (old_value != 0 && value == 0) {
         c->fill_count--;
@@ -112,63 +158,14 @@ void chunk_set_block(struct chunk *c, int x, int y, int z, block_t value) {
 
     c->blocks[index] = value;
     c->dirty = true;
-
-    if (on_border(x, y, z)) {
-
-        // Create boundary bitmask and count boundaries
-        uint8_t boundary_mask = 0;
-        if (x == C_SIZE - 1)
-            boundary_mask |= (1 << DIR_RIGHT); // +X boundary
-        if (x == 0)
-            boundary_mask |= (1 << DIR_LEFT); // -X boundary
-        if (y == C_SIZE - 1)
-            boundary_mask |= (1 << DIR_UP); // +Y boundary
-        if (y == 0)
-            boundary_mask |= (1 << DIR_DOWN); // -Y boundary
-        if (z == C_SIZE - 1)
-            boundary_mask |= (1 << DIR_FRONT); // +Z boundary
-        if (z == 0)
-            boundary_mask |= (1 << DIR_BACK); // -Z boundary
-
-        for (int face = 0; face < 6; face++) {
-            if ((boundary_mask & (1 << face)) && c->neighbours[face]) {
-                int tx = x;
-                int ty = y;
-                int tz = z;
-
-                // Adjust target coordinate for the specific face, slow?
-                switch (face) {
-                case DIR_RIGHT:
-                    tx = -1;
-                    break; // +X face
-                case DIR_LEFT:
-                    tx = C_SIZE;
-                    break; // -X face
-                case DIR_UP:
-                    ty = -1;
-                    break; // +Y face
-                case DIR_DOWN:
-                    ty = C_SIZE;
-                    break; // -Y face
-                case DIR_FRONT:
-                    tz = -1;
-                    break; // +Z face
-                case DIR_BACK:
-                    tz = C_SIZE;
-                    break; // -Z face
-                }
-
-                set_padded_block(c->neighbours[face], tx, ty, tz, value);
-            }
-        }
-    }
+    try_set_padded_block(c, x, y, z, value);
 }
 
 block_t chunk_get_block(struct chunk *c, int x, int y, int z) {
     ASSERT_CHUNK(c);
     if (!inside_padded(x, y, z))
         return 0;
-    return c->blocks[zxy_index(x + 1, y + 1, z + 1)];
+    return c->blocks[zxy_index_l(x + 1, y + 1, z + 1)];
 }
 
 void chunk_link(struct chunk *c, struct chunk *neighbour, int face) {
@@ -209,7 +206,7 @@ static void get_face_ao(struct chunk *c, int x, int y, int z, int face, uint8_t 
         int ox = x + ao_offsets[face][i].x;
         int oy = y + ao_offsets[face][i].y;
         int oz = z + ao_offsets[face][i].z;
-        block_t b = c->blocks[zxy_index(ox + 1, oy + 1, oz + 1)];
+        block_t b = c->blocks[zxy_index_l(ox + 1, oy + 1, oz + 1)];
         solids[i] = (b != 0);
     }
 
@@ -250,7 +247,7 @@ int chunk_generate_mesh_data(struct chunk *c, void **data) {
                     int ox = x + normal.x;
                     int oy = y + normal.y;
                     int oz = z + normal.z;
-                    int o_idx = zxy_index(ox + 1, oy + 1, oz + 1);
+                    int o_idx = zxy_index_l(ox + 1, oy + 1, oz + 1);
 
                     if (block_create_face(block, face, c->blocks[o_idx])) {
                         bool flip = false;
@@ -293,7 +290,7 @@ void tmp_fill_chunk_data(struct chunk *c, bool fill_padding) {
             if (x > 14 && x < 20 && z > 14 && z < 20)
                 height = C_SIZE;
             for (int y = 0; y < height; y++) {
-                int index = zxy_index(x, y, z);
+                int index = zxy_index_l(x, y, z);
 
                 block_t block = BLOCK_STONE;
                 if (y == 0)
@@ -326,7 +323,7 @@ void tmp_fill_chunk_data(struct chunk *c, bool fill_padding) {
             for (int y = -1; y <= C_SIZE; y++) {
                 for (int x = -1; x <= C_SIZE; x++) {
                     if (x == -1 || y == -1 || z == -1 || x == C_SIZE || y == C_SIZE || z == C_SIZE) {
-                        int index = zxy_index(x + 1, y + 1, z + 1);
+                        int index = zxy_index_l(x + 1, y + 1, z + 1);
                         c->blocks[index] = BLOCK_STONE;
                     }
                 }

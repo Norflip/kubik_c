@@ -4,10 +4,23 @@
 #include "maf.h"
 #include "cam.h"
 
+#define H_SIZE 16
+#define H_SIZE3 (H_SIZE * H_SIZE * H_SIZE)
+
+struct hunk {
+    int x, z;
+    struct chunk *chunks[H_SIZE3];
+    int chunk_count;
+};
+
 struct world {
     struct chunk **chunks;
     int chunk_count, chunk_cap;
 
+    struct hunk** hunks;
+    int hunk_count, hunk_cap;
+
+    bool initialized;
     GLuint empty_vao;
     int draw_count;
 };
