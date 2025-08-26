@@ -8,6 +8,8 @@ typedef uint64_t u64;
 
 #define u_align(x, a) (((x) + (a) - 1) / (a) * (a))
 #define u_offsetof(T, _m) ((size_t)&((T *)0)->_m)
+#define u_wrap(x, l) ((((x) % (l)) + (l)) % (l))
+#define u_idiv(x, d) ((x > 0) ? (x) / (d) : ((x) - (d) + 1) / (d))
 
 typedef uint32_t col32_t;
 #define C32_WHITE 0xFFFFFFFF

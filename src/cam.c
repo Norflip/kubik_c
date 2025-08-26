@@ -6,8 +6,8 @@
 #define CAM_FAR_Z 1000.0f
 
 #define FPS_MOUSE_SENSITIVITY 0.05f
-#define FPS_BOOST_MULTIPLIER 4.0f
-#define FPS_BASE_SPEED 8.0f
+#define FPS_BOOST_MULTIPLIER 6.0f
+#define FPS_BASE_SPEED 30.0f
 
 static void create_frustum(mat4 m, vec4 *frustum) {
     // -X plane

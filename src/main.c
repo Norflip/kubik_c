@@ -22,12 +22,11 @@
 static GLFWwindow *window;
 static int window_width, window_height;
 static bool draw_wireframe = false;
+static bool vsync = true;
 
 static void glfw_error_cb(int error, const char *description);
 static void glfw_key_callback(GLFWwindow *window, int key, int scancode, int action, int mods);
 static void GLAPIENTRY gl_debug_callback(GLenum source, GLenum type, GLuint id, GLenum severity, GLsizei length, const GLchar *message, const void *userParam);
-
-static void world_ui_stats(struct world *world);
 
 int main() {
 
@@ -64,7 +63,7 @@ int main() {
     }
 
     glfwMakeContextCurrent(window);
-    glfwSwapInterval(0);
+    glfwSwapInterval(vsync ? 1 : 0);
     glfwWindowHint(GLFW_RESIZABLE, GL_FALSE);
     glfwSetWindowSizeLimits(window, window_width, window_height, window_width, window_height);
     glfwSetKeyCallback(window, glfw_key_callback);
@@ -160,11 +159,17 @@ int main() {
         igBegin(" ", NULL, 0);
         {
             igText("application average %.3f ms/frame (%.1f FPS)", 1000.0f / igGetIO()->Framerate, igGetIO()->Framerate);
-            igText("camera position: (%.1f, %.1f, %.1f)", camera.pos.x, camera.pos.y, camera.pos.z);
-            vec3 cam_rot_euler = quat_to_euler(camera.rot);
-            igText("camera rotation: (%.1f, %.1f, %.1f)", cam_rot_euler.x, cam_rot_euler.y, cam_rot_euler.z);
+            igText("time since start: %.1f s", glfwGetTime() - start_time);
+            igText("vsync: %s (F2 to toggle)", vsync ? "[ON]" : "[OFF]");
 
-            world_ui_stats(&world);
+            igSeparatorText("Player");
+            igText("position: (%d, %d, %d)", (int)camera.pos.x, (int)camera.pos.y, (int)camera.pos.z);
+            igText("chunk: (%d, %d, %d)", u_idiv((int)camera.pos.x, C_SIZE), u_idiv((int)camera.pos.y, C_SIZE), u_idiv((int)camera.pos.z, C_SIZE));
+
+            igSeparatorText("World");
+            igText("Chunk Count: %d", world.chunk_count);
+            igText("Hunk Count: %d", world.hunk_count);
+            igText("Draw Calls: %d", world.draw_count);
         }
         igEnd();
 
@@ -196,6 +201,11 @@ static void glfw_key_callback(GLFWwindow *window, int key, int scancode, int act
         draw_wireframe = !draw_wireframe;
     }
 
+    if(action == GLFW_PRESS && key == GLFW_KEY_F2){
+        vsync = !vsync;
+        glfwSwapInterval(vsync ? 1 : 0);
+    }
+
     // if (igGetIO()->WantCaptureKeyboard)return;
 }
 
@@ -225,9 +235,3 @@ static void GLAPIENTRY gl_debug_callback(GLenum source, GLenum type, GLuint id, 
 #endif
 }
 
-void world_ui_stats(struct world *world) {
-    igSeparatorText("World");
-    igText("Chunk Count: %d", world->chunk_count);
-    igText("Hunk Count: %d", world->hunk_count);
-    igText("Draw Calls: %d", world->draw_count);
-}

@@ -4,21 +4,18 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define idiv(x, d) ((x > 0) ? (x) / (d) : ((x) - (d) + 1) / (d))
-#define iwrap(x, l) ((((x) % (l)) + (l)) % (l))
-
 static inline int zxy_index_l(int x, int y, int z, int l) {
     return z + (x * l) + (y * l * l);
 }
 
+// TODO: too bulky, consider refactoring
 static inline void chunk_to_hunk(int x, int y, int z, int *hx, int *hz, int *lx, int *ly, int *lz, int *index) {
-    *hx = idiv(x, H_SIZE);
-    *hz = idiv(z, H_SIZE);
-
-    *lx = iwrap(x, H_SIZE);
-    *ly = iwrap(y, H_SIZE);
-    *lz = iwrap(z, H_SIZE);
-    *index = zxy_index_l(iwrap(*lx, H_SIZE), iwrap(*ly, H_SIZE), iwrap(*lz, H_SIZE), H_SIZE);
+    *hx = u_idiv(x, H_SIZE);
+    *hz = u_idiv(z, H_SIZE);
+    *lx = u_wrap(x, H_SIZE);
+    *ly = u_wrap(y, H_SIZE);
+    *lz = u_wrap(z, H_SIZE);
+    *index = zxy_index_l(u_wrap(*lx, H_SIZE), u_wrap(*ly, H_SIZE), u_wrap(*lz, H_SIZE), H_SIZE);
 }
 
 static struct hunk *get_hunk(struct world *w, int x, int z) {
