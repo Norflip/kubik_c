@@ -6,16 +6,6 @@
 
 #define C_CANARY 0xBABEDAD
 
-struct mesh_quad {
-    u32 pos_face; // 3*6 bits voxel pos + 3 bits face + (2*4) bits AO + 1 bit flipped = 30 bits, 2 bits remaining
-    u32 texid;
-};
-
-// this should probably be moved to maf.h
-typedef struct {
-    int x, y, z;
-} int3;
-
 static bool inside(int x, int y, int z) {
     return (x >= 0 && x < C_SIZE && y >= 0 && y < C_SIZE && z >= 0 && z < C_SIZE);
 }
@@ -47,6 +37,8 @@ void chunk_initialize(struct chunk *c, int x, int y, int z) {
     c->z = z;
     c->_canary = C_CANARY;
     c->tint = C32_WHITE;
+    c->min = (vec3){(float)c->x * C_SIZE, (float)c->y * C_SIZE, (float)c->z * C_SIZE};
+    c->max = (vec3){(float)(c->x + 1) * C_SIZE, (float)(c->y + 1) * C_SIZE, (float)(c->z + 1) * C_SIZE};
 }
 
 static struct chunk *get_neighbour(struct chunk *c, int face) {
@@ -103,7 +95,7 @@ static void try_set_padded_block(struct chunk *c, int x, int y, int z, block_t v
     if (z == 0)
         boundary_mask |= (1 << DIR_BACK); // -Z boundary
 
-    struct chunk* n;
+    struct chunk *n;
     for (int face = 0; face < 6; face++) {
         n = c->neighbours[face];
         if ((boundary_mask & (1 << face)) && n) {
@@ -133,7 +125,7 @@ static void try_set_padded_block(struct chunk *c, int x, int y, int z, block_t v
                 break; // -Z face
             }
 
-           // set_padded_block(c->neighbours[face], tx, ty, tz, value);
+            // set_padded_block(c->neighbours[face], tx, ty, tz, value);
             int idx = zxy_index_l(tx + 1, ty + 1, tz + 1);
             n->blocks[idx] = value;
             n->dirty = true;
@@ -198,9 +190,9 @@ static void get_face_ao(struct chunk *c, int x, int y, int z, int face, uint8_t 
     assert(face >= 0 && face < 6);
     // counter clockwise
     // took fucking ages
-    const int3 ao_offsets[6][8] = {{{1, -1, -1}, {1, -1, 0}, {1, -1, 1}, {1, 0, 1}, {1, 1, 1}, {1, 1, 0}, {1, 1, -1}, {1, 0, -1}}, {{-1, -1, 1}, {-1, -1, 0}, {-1, -1, -1}, {-1, 0, -1}, {-1, 1, -1}, {-1, 1, 0}, {-1, 1, 1}, {-1, 0, 1}},
-                                   {{-1, 1, -1}, {0, 1, -1}, {1, 1, -1}, {1, 1, 0}, {1, 1, 1}, {0, 1, 1}, {-1, 1, 1}, {-1, 1, 0}}, {{-1, -1, -1}, {-1, -1, 0}, {-1, -1, 1}, {0, -1, 1}, {1, -1, 1}, {1, -1, 0}, {1, -1, -1}, {0, -1, -1}},
-                                   {{1, -1, 1}, {0, -1, 1}, {-1, -1, 1}, {-1, 0, 1}, {-1, 1, 1}, {0, 1, 1}, {1, 1, 1}, {1, 0, 1}}, {{-1, -1, -1}, {0, -1, -1}, {1, -1, -1}, {1, 0, -1}, {1, 1, -1}, {0, 1, -1}, {-1, 1, -1}, {-1, 0, -1}}};
+    const ivec3 ao_offsets[6][8] = {{{1, -1, -1}, {1, -1, 0}, {1, -1, 1}, {1, 0, 1}, {1, 1, 1}, {1, 1, 0}, {1, 1, -1}, {1, 0, -1}}, {{-1, -1, 1}, {-1, -1, 0}, {-1, -1, -1}, {-1, 0, -1}, {-1, 1, -1}, {-1, 1, 0}, {-1, 1, 1}, {-1, 0, 1}},
+                                    {{-1, 1, -1}, {0, 1, -1}, {1, 1, -1}, {1, 1, 0}, {1, 1, 1}, {0, 1, 1}, {-1, 1, 1}, {-1, 1, 0}}, {{-1, -1, -1}, {-1, -1, 0}, {-1, -1, 1}, {0, -1, 1}, {1, -1, 1}, {1, -1, 0}, {1, -1, -1}, {0, -1, -1}},
+                                    {{1, -1, 1}, {0, -1, 1}, {-1, -1, 1}, {-1, 0, 1}, {-1, 1, 1}, {0, 1, 1}, {1, 1, 1}, {1, 0, 1}}, {{-1, -1, -1}, {0, -1, -1}, {1, -1, -1}, {1, 0, -1}, {1, 1, -1}, {0, 1, -1}, {-1, 1, -1}, {-1, 0, -1}}};
     bool solids[8];
     for (int i = 0; i < 8; i++) {
         int ox = x + ao_offsets[face][i].x;
@@ -266,17 +258,18 @@ int chunk_generate_mesh_data(struct chunk *c, void **data) {
     return added;
 }
 
+/*
 void chunk_upload_mesh_data(struct chunk *c, void *data) {
     ASSERT_CHUNK(c);
     if (data == NULL || c->fill_count == 0)
         return;
 
     // Upload the mesh data to the GPU
-    glCreateBuffers(1, &(c->quad_buffer));
-    glNamedBufferData(c->quad_buffer, c->quad_count * sizeof(struct mesh_quad), data, GL_STATIC_DRAW);
+    glCreateBuffers(1, &(c->old_quad_buffer));
+    glNamedBufferData(c->old_quad_buffer, c->quad_count * sizeof(struct mesh_quad), data, GL_STATIC_DRAW);
     free(data);
 }
-
+*/
 void tmp_fill_chunk_data(struct chunk *c, bool fill_padding) {
 
     ASSERT_CHUNK(c);

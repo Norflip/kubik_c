@@ -11,10 +11,12 @@ typedef uint64_t u64;
 #define u_wrap(x, l) ((((x) % (l)) + (l)) % (l))
 #define u_idiv(x, d) ((x > 0) ? (x) / (d) : ((x) - (d) + 1) / (d))
 
+#define KB(x) ((x) * 1024)
+#define MB(x) ((x) * 1024 * 1024)
+
 typedef uint32_t col32_t;
 #define C32_WHITE 0xFFFFFFFF
 #define C32_BLACK 0x000000FF
-
 #define C32_RED 0xFF0000FF
 #define C32_GREEN 0x00FF00FF
 #define C32_BLUE 0x0000FFFF
@@ -25,7 +27,7 @@ typedef uint32_t col32_t;
 
 // directions
 typedef struct {
-    int x, y, z;
+    int32_t x, y, z;
 } ivec3;
 
 enum dir { DIR_RIGHT = 0, DIR_LEFT, DIR_UP, DIR_DOWN, DIR_FRONT, DIR_BACK };

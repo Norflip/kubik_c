@@ -42,16 +42,14 @@ static struct hunk *add_hunk(struct world *w, int x, int z) {
 }
 
 static struct chunk *add_chunk(struct world *w, int x, int y, int z, struct hunk *hunk, int index) {
-    if (w->chunk_count >= w->chunk_cap) {
+    if (w->chunk_count >= w->chunk_cap)
         return NULL;
-    }
 
     if (!hunk) {
         int hx, hz, index;
         int lx, ly, lz;
         chunk_to_hunk(x, y, z, &hx, &hz, &lx, &ly, &lz, &index);
         hunk = get_hunk(w, hx, hz);
-
         if (hunk == NULL) {
             fprintf(stderr, "add_chunk: hunk (%d, %d) not found for chunk (%d, %d, %d)\n", hx, hz, x, y, z);
             return NULL;
@@ -73,8 +71,7 @@ static struct chunk *add_chunk(struct world *w, int x, int y, int z, struct hunk
 
 void world_init_demo(struct world *w) {
 
-    const int SIZE = 5;
-
+    const int SIZE = 8;
     w->chunk_count = 0;
     w->chunk_cap = SIZE * SIZE * SIZE;
     w->chunks = malloc(sizeof(struct chunk) * w->chunk_cap);
@@ -83,7 +80,7 @@ void world_init_demo(struct world *w) {
     w->hunk_cap = 9;
     w->hunks = malloc(sizeof(struct hunk *) * w->hunk_cap);
 
-    glGenVertexArrays(1, &w->empty_vao);
+    worldrnd_init(&w->rnd, 512);
 
     for (int z = 0; z < SIZE; z++) {
         for (int y = 0; y < SIZE; y++) {
@@ -128,7 +125,7 @@ void world_init_demo(struct world *w) {
     for (int i = 0; i < w->chunk_count; i++) {
         struct chunk *c = w->chunks[i];
         chunk_generate_mesh_data(c, &mesh_data);
-        chunk_upload_mesh_data(c, mesh_data);
+        worldrnd_upload(&w->rnd, c, mesh_data, c->quad_count * sizeof(struct mesh_quad));
     }
 }
 
@@ -137,45 +134,24 @@ struct chunk *world_get_chunk(struct world *w, int x, int y, int z) {
     int hx, hz, index;
     int lx, ly, lz;
     chunk_to_hunk(x, y, z, &hx, &hz, &lx, &ly, &lz, &index);
-
     struct hunk *hunk = get_hunk(w, hx, hz);
     if (!hunk) {
         fprintf(stderr, "world_get_chunk: hunk (%d, %d) not found\n", hx, hz);
         return NULL;
     }
-
     return hunk->chunks[index];
 }
 
-void tmp_world_draw(struct world *w, struct cam *cam, GLuint program, GLuint atlas, int atlas_depth) {
-
-    if (w->chunk_count == 0)
-        return;
-
-    w->draw_count = 0;
-    cam_update(cam);
-
-    glUseProgram(program);
-    glUniformMatrix4fv(glGetUniformLocation(program, "vp"), 1, GL_FALSE, cam_view_proj_ptr(cam));
-    glUniform1ui(glGetUniformLocation(program, "atlas_depth"), (u32)atlas_depth);
-    glBindTextureUnit(0, atlas);
+void world_draw(struct world *w, struct cam *cam, GLuint program, GLuint atlas, int atlas_depth) {
+    worldrnd_clear(&w->rnd);
 
     for (int i = 0; i < w->chunk_count; i++) {
         struct chunk *c = w->chunks[i];
-        if (c->quad_count == 0 || c->quad_buffer == GL_NONE)
+        if (!cam_aabb_in_view(cam, c->min, c->max))
             continue;
-        vec3 min = {(float)c->x * C_SIZE, (float)c->y * C_SIZE, (float)c->z * C_SIZE};
-        vec3 max = {(float)(c->x + 1) * C_SIZE, (float)(c->y + 1) * C_SIZE, (float)(c->z + 1) * C_SIZE};
-
-        if (!cam_aabb_in_view(cam, min, max))
-            continue;
-
-        glUniform3i(glGetUniformLocation(program, "chunk_pos"), (u32)c->x * C_SIZE, (u32)c->y * C_SIZE, (u32)c->z * C_SIZE);
-        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, c->quad_buffer);
-        glBindVertexArray(w->empty_vao);
-        glDrawArrays(GL_TRIANGLES, 0, c->quad_count * 6);
-
-        dbg_aabb(min, max, C32_CYAN);
-        w->draw_count++;
+        worldrnd_queue_chunk(&w->rnd, c);
+        dbg_aabb(c->min, c->max, C32_CYAN);
     }
+
+    worldrnd_draw(&w->rnd, cam, program, atlas, atlas_depth);
 }

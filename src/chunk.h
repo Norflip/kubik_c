@@ -11,9 +11,16 @@
 #define C_SIZEP2 (C_SIZEP * C_SIZEP)
 #define C_SIZEP3 (C_SIZEP * C_SIZEP * C_SIZEP)
 
+// moved to .h only so that we can get it's size in world.c... for now
+struct mesh_quad {
+    u32 pos_face; // 3*6 bits voxel pos + 3 bits face + (2*4) bits AO + 1 bit flipped = 30 bits, 2 bits remaining
+    u32 texid;
+};
+
 struct chunk {
     int _canary;
     int x, y, z;
+    vec3 min, max;
 
     block_t blocks[C_SIZEP3];
     int fill_count; // excludes the padded blocks
@@ -22,10 +29,16 @@ struct chunk {
 
     // rendering stuff
     col32_t tint;
-    GLuint quad_buffer;
+  //  GLuint old_quad_buffer;
+   // mdi_handle_t handle;
     int quad_count;
-
     int dirty;
+
+    // move into a struct? 
+    u64 mdi_page;
+    u64 mdi_size;
+    void* mdiptr;
+    bool mdi_valid;
 };
 
 void chunk_initialize(struct chunk *c, int x, int y, int z);
@@ -36,7 +49,7 @@ void chunk_link(struct chunk *c, struct chunk *neighbour, int face);
 
 // allocates memory for the buffer, frees the memory in upload_mesh_data
 int chunk_generate_mesh_data(struct chunk *c, void **data);
-void chunk_upload_mesh_data(struct chunk *c, void *data);
+//void chunk_upload_mesh_data(struct chunk *c, void *data);
 
 void tmp_fill_chunk_data(struct chunk *c, bool fill_padding);
 

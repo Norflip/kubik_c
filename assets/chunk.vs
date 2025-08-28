@@ -5,11 +5,18 @@ struct quad {
     uint tex;
 };
 
+struct chunk_pos {
+    int x, y, z;
+};
+
 layout(location = 0) uniform mat4 vp;
-layout(location = 1) uniform ivec3 chunk_pos;
 
 layout(std430, binding = 0) buffer QuadBuffer {
     quad quads[];
+};
+
+layout(std430, binding = 1) buffer PosBuffer {
+    chunk_pos chunk_positions[];
 };
 
 const ivec3 VOXEL_CORNERS[8] = ivec3[8](
@@ -87,7 +94,9 @@ void main () {
     ivec3 voxel_pos = VOXEL_CORNERS[c_index];
 
     ivec3 wpos = voxel_pos + pos;
-    wpos += chunk_pos;
+    wpos.x += chunk_positions[gl_DrawID].x;
+    wpos.y += chunk_positions[gl_DrawID].y;
+    wpos.z += chunk_positions[gl_DrawID].z;
     gl_Position = vp * vec4(vec3(wpos), 1.0);
 
     outData.texIndex = q.tex;

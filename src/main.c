@@ -152,7 +152,10 @@ int main() {
 
         glViewport(0, 0, window_width, window_height);
         glPolygonMode(GL_FRONT_AND_BACK, draw_wireframe ? GL_LINE : GL_FILL);
-        tmp_world_draw(&world, &camera, chunk_program, chunk_atlas, atlas_depth);
+
+        // tmp_world_draw(&world, &camera, chunk_program, chunk_atlas, atlas_depth);
+        world_draw(&world, &camera, chunk_program, chunk_atlas, atlas_depth);
+
         gfx_tmp_draw_lines(&camera);
 
         igSetNextWindowPos((ImVec2){0, 0}, ImGuiCond_Always, (ImVec2){0, 0});
@@ -169,7 +172,22 @@ int main() {
             igSeparatorText("World");
             igText("Chunk Count: %d", world.chunk_count);
             igText("Hunk Count: %d", world.hunk_count);
-            igText("Draw Calls: %d", world.draw_count);
+            igText("Draw Calls: %d", world.rnd.draw_count);
+            igText("Draw Commands: %d", world.rnd.added_cmds_count);
+
+            for (int i = 0; i < world.rnd.draw_count; i++) {
+                struct drawbuf *buf = world.rnd.drawbuf[i];
+                if (igTreeNode_StrStr("drawbuffer", "buffer %d", i)) {
+                    igText("  Buffer size: %zu bytes [%zu MB]", BUFFER_SIZE, BUFFER_SIZE / (1024 * 1024));
+                    igText("  Page size: %zu bytes [%zu KB]", PAGE_SIZE, PAGE_SIZE / 1024);
+                    igText("  Total pages: %zu", PAGE_COUNT);
+                    igText("  Free pages: %zu", buf->free_pages);
+                    igText("  Used pages: %zu", PAGE_COUNT - buf->free_pages);
+                    igText("  Utilization: %.1f%%", 100.0 * (PAGE_COUNT - buf->free_pages) / PAGE_COUNT);
+                    igText("  Last Alloc: %d", buf->last_alloc_word);
+                    igTreePop();
+                }
+            }
         }
         igEnd();
 
@@ -201,7 +219,7 @@ static void glfw_key_callback(GLFWwindow *window, int key, int scancode, int act
         draw_wireframe = !draw_wireframe;
     }
 
-    if(action == GLFW_PRESS && key == GLFW_KEY_F2){
+    if (action == GLFW_PRESS && key == GLFW_KEY_F2) {
         vsync = !vsync;
         glfwSwapInterval(vsync ? 1 : 0);
     }
@@ -234,4 +252,3 @@ static void GLAPIENTRY gl_debug_callback(GLenum source, GLenum type, GLuint id, 
     }
 #endif
 }
-

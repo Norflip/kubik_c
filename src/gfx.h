@@ -14,9 +14,10 @@
 
 void gfx_initialize(void);
 void gfx_shutdown(void);
+
 void dbg_line(vec3 start, vec3 end, col32_t color);
 void dbg_aabb(vec3 min, vec3 max, col32_t color);
-void dbg_cube (vec3 pos, vec3 ext, col32_t color);
+void dbg_cube(vec3 pos, vec3 ext, col32_t color);
 void gfx_tmp_draw_lines(struct cam *c);
 
 GLuint gfx_load_program(const char *name, const char *vspath, const char *fspath);

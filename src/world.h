@@ -4,6 +4,7 @@
 #include "chunk.h"
 #include "maf.h"
 #include "utils.h"
+#include "render.h"
 
 #define H_SIZE 16
 #define H_SIZE3 (H_SIZE * H_SIZE * H_SIZE)
@@ -14,6 +15,8 @@ struct hunk {
     int chunk_count;
 };
 
+struct drawbuf2;
+
 struct world {
     struct chunk **chunks;
     int chunk_count, chunk_cap;
@@ -22,12 +25,11 @@ struct world {
     int hunk_count, hunk_cap;
 
     bool initialized;
-    GLuint empty_vao;
-    int draw_count;
+    struct worldrnd rnd;
 };
 
 void world_init_demo(struct world *w);
 struct chunk *world_get_chunk(struct world *w, int x, int y, int z);
-void tmp_world_draw(struct world *w, struct cam *cam, GLuint program, GLuint atlas, int atlas_depth);
+void world_draw(struct world *w, struct cam *cam, GLuint program, GLuint atlas, int atlas_depth);
 
 #endif // WORLD_H
