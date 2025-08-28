@@ -142,6 +142,22 @@ struct chunk *world_get_chunk(struct world *w, int x, int y, int z) {
     return hunk->chunks[index];
 }
 
+block_t world_get_block(struct world *w, int x, int y, int z) {
+    // world coordinates to chunk coordinates
+    int cx = u_idiv(x, C_SIZE);
+    int cy = u_idiv(y, C_SIZE);
+    int cz = u_idiv(z, C_SIZE);
+    struct chunk *c = world_get_chunk(w, cx, cy, cz);
+    if (!c) {
+        return BLK_AIR;
+    }
+
+    int lx = u_wrap(x, C_SIZE);
+    int ly = u_wrap(y, C_SIZE);
+    int lz = u_wrap(z, C_SIZE);
+    return chunk_get_block(c, lx, ly, lz);
+}
+
 void world_draw(struct world *w, struct cam *cam, GLuint program, GLuint atlas, int atlas_depth) {
     worldrnd_clear(&w->rnd);
 
@@ -154,4 +170,65 @@ void world_draw(struct world *w, struct cam *cam, GLuint program, GLuint atlas, 
     }
 
     worldrnd_draw(&w->rnd, cam, program, atlas, atlas_depth);
+}
+
+bool world_trace(struct world *w, vec3 ro, vec3 rd, float max_distance, struct world_hit *hit) {
+
+    ivec3 pos = iv3_floor(ro);
+    rd = v3_normalize(rd);
+    ivec3 step = (ivec3){(rd.x > 0) ? 1 : ((rd.x < 0) ? -1 : 0), (rd.y > 0) ? 1 : ((rd.y < 0) ? -1 : 0), (rd.z > 0) ? 1 : ((rd.z < 0) ? -1 : 0)};
+    vec3 fr = (vec3){.x = ro.x - floorf(ro.x), .y = ro.y - floorf(ro.y), .z = ro.z - floorf(ro.z)};
+
+    float tx = step.x / rd.x;
+    float ty = step.y / rd.y;
+    float tz = step.z / rd.z;
+
+    float tMaxX, tMaxY, tMaxZ;
+    tMaxX = tx * ((rd.x > 0.0f) ? (1.0f - fr.x) : fr.x);
+    tMaxY = ty * ((rd.y > 0.0f) ? (1.0f - fr.y) : fr.y);
+    tMaxZ = tz * ((rd.z > 0.0f) ? (1.0f - fr.z) : fr.z);
+    int maxsteps = (int)ceilf(max_distance * 1.7f);
+    const float max_distance_sqr = max_distance * max_distance;
+
+    do {
+        // check if out of bounds
+        if (pos.y < 0 || pos.y >= (H_SIZE * C_SIZE))
+            break;
+
+        float dstsqr = v3_lensqr(v3_sub(v3_cast(pos), ro));
+        if (dstsqr > max_distance_sqr)
+            break;
+
+        hit->block = world_get_block(w, pos.x, pos.y, pos.z);
+        if (hit->block != BLK_AIR && block_is_solid(hit->block)) {
+            hit->pos = pos;
+            hit->did_hit = true;
+            return true;
+        }
+
+        if (tMaxX < tMaxY) {
+            if (tMaxZ < tMaxX) {
+                tMaxZ += tz;
+                pos.z += step.z;
+                hit->normal = (ivec3){0, 0, -step.z};
+            } else {
+                tMaxX += tx;
+                pos.x += step.x;
+                hit->normal = (ivec3){-step.x, 0, 0};
+            }
+        } else {
+            if (tMaxZ < tMaxY) {
+                tMaxZ += tz;
+                pos.z += step.z;
+                hit->normal = (ivec3){0, 0, -step.z};
+            } else {
+                tMaxY += ty;
+                pos.y += step.y;
+                hit->normal = (ivec3){0, -step.y, 0};
+            }
+        }
+    } while (maxsteps--);
+
+    hit->did_hit = false;
+    return false;
 }

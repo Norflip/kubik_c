@@ -9,11 +9,20 @@ vec3(0, 1, 0), vec3(0, - 1, 0), vec3(1, 0, 0), vec3(- 1, 0, 0), vec3(0, 0, 1), v
 in VSOut {
     flat uint texIndex;
     flat uint face;
+    flat uint tint;
     vec2 uv;
     float ao;
 } inData;
 
 out vec4 frag_color;
+
+vec4 unpack_color(uint color) {
+    float a = float((color >> 24) & 0xFF) / 255.0;
+    float b = float((color >> 16) & 0xFF) / 255.0;
+    float g = float((color >> 8) & 0xFF) / 255.0;
+    float r = float(color & 0xFF) / 255.0;
+    return vec4(a, b, g, r);
+}
 
 vec3 get_array_uv(vec2 uv, uint layer, uint cap) {
     return vec3(uv, max(0, min(float(cap - 1), floor(float(layer) + 0.5))));
@@ -36,6 +45,9 @@ void main() {
     color.rgb *= (1.0 - dir_shadow_strength)  + dir_shadow_strength * ndots;
     color.rgb *= 1.2;
     color.rgb *= inData.ao;
+
+    vec4 tint = unpack_color(inData.tint);
+    color = mix(color, tint, tint.a);
 
     frag_color = vec4(clamp(color.rgb, 0, 1), 1.0);
 }

@@ -1,6 +1,7 @@
 #ifndef MAF_H
 #define MAF_H
 #include <math.h>
+#include <stdint.h>
 
 // general shiet
 #define PI (3.14159265359f)
@@ -16,6 +17,10 @@ typedef struct {
 } vec3;
 
 typedef struct {
+    int x, y, z;
+} ivec3;
+
+typedef struct {
     float x, y, z, w;
 } vec4;
 
@@ -24,13 +29,19 @@ typedef struct {
 } mat4;
 
 // casts to float*
-#define maf_ptr(f) ((float*)&(f))
+#define maf_ptr(f) ((float *)&(f))
 
 // vec3
 #define V3_ZERO (vec3){0.0f, 0.0f, 0.0f}
 #define V3_UP (vec3){0.0f, 1.0f, 0.0f}
 #define V3_RIGHT (vec3){1.0f, 0.0f, 0.0f}
 #define V3_FORWARD (vec3){0.0f, 0.0f, 1.0f}
+
+#define v3_cast(v)                         \
+    (vec3) {                               \
+        (float)v.x, (float)v.y, (float)v.z \
+    }
+
 vec3 v3_add(vec3 a, vec3 b);
 vec3 v3_sub(vec3 a, vec3 b);
 vec3 v3_scale(vec3 v, float s);
@@ -40,6 +51,10 @@ vec3 v3_cross(vec3 a, vec3 b);
 float v3_dot(vec3 a, vec3 b);
 float v3_len(vec3 v);
 float v3_lensqr(vec3 v);
+
+// ivec3
+ivec3 iv3_add(ivec3 a, ivec3 b);
+ivec3 iv3_floor(vec3 v);
 
 // mat4
 // http://www.opengl-tutorial.org/beginners-tutorials/tutorial-3-matrices/
@@ -57,7 +72,8 @@ mat4 m4_look_dir(vec3 eye, vec3 dir, vec3 up);
 mat4 m4_translate(vec3 v);
 mat4 m4_scale(vec3 v);
 mat4 m4_mul(mat4 a, mat4 b);
-vec3 m4_mulv(mat4 m, vec3 v);
+vec4 m4_mulv4(mat4 m, vec4 v);
+vec3 m4_mulv3(mat4 m, vec3 v);
 mat4 m4_inverse(mat4 m);
 float m4_determinant(mat4 m);
 

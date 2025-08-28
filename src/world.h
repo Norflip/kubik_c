@@ -3,8 +3,8 @@
 #include "cam.h"
 #include "chunk.h"
 #include "maf.h"
-#include "utils.h"
 #include "render.h"
+#include "utils.h"
 
 #define H_SIZE 16
 #define H_SIZE3 (H_SIZE * H_SIZE * H_SIZE)
@@ -14,8 +14,6 @@ struct hunk {
     struct chunk *chunks[H_SIZE3];
     int chunk_count;
 };
-
-struct drawbuf2;
 
 struct world {
     struct chunk **chunks;
@@ -28,8 +26,17 @@ struct world {
     struct worldrnd rnd;
 };
 
+struct world_hit {
+    block_t block;
+    ivec3 pos, normal;
+    float distance;
+    bool did_hit;
+};
+
 void world_init_demo(struct world *w);
 struct chunk *world_get_chunk(struct world *w, int x, int y, int z);
+block_t world_get_block(struct world *w, int x, int y, int z);
 void world_draw(struct world *w, struct cam *cam, GLuint program, GLuint atlas, int atlas_depth);
+bool world_trace(struct world *w, vec3 o, vec3 dir, float max_distance, struct world_hit *hit);
 
 #endif // WORLD_H

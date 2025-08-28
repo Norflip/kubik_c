@@ -29,8 +29,6 @@ struct chunk {
 
     // rendering stuff
     col32_t tint;
-  //  GLuint old_quad_buffer;
-   // mdi_handle_t handle;
     int quad_count;
     int dirty;
 

@@ -1,6 +1,7 @@
 #ifndef UTILS_H
 #define UTILS_H
 #include <stdint.h>
+#include "maf.h"
 
 typedef uint8_t u8;
 typedef uint32_t u32;
@@ -23,13 +24,9 @@ typedef uint32_t col32_t;
 #define C32_YELLOW 0xFFCC00FF
 #define C32_CYAN 0x00FFFFFF
 #define C32_MAGENTA 0xFF00FFFF
-
+#define C32_CLEAR 0xFFFFFF00
 
 // directions
-typedef struct {
-    int32_t x, y, z;
-} ivec3;
-
 enum dir { DIR_RIGHT = 0, DIR_LEFT, DIR_UP, DIR_DOWN, DIR_FRONT, DIR_BACK };
 #define opposite_dir(i) (i + (!((i) % 2) ? 1 : -1))
 static const ivec3 FACE_NORMALS[6] = {{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}};

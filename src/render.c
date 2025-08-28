@@ -50,9 +50,9 @@ static struct drawbuf *alloc_drawbuf(int max_commands) {
     buf->cmds_count = 0;
 
     // per chunk data
-    glCreateBuffers(1, &buf->chunk_pos_buffer);
-    glNamedBufferStorage(buf->chunk_pos_buffer, sizeof(ivec3) * max_commands, NULL, storage_flags);
-    buf->chunk_pos_data = glMapNamedBufferRange(buf->chunk_pos_buffer, 0, sizeof(ivec3) * max_commands, mapping_flags);
+    glCreateBuffers(1, &buf->chunk_data_buffer);
+    glNamedBufferStorage(buf->chunk_data_buffer, sizeof(struct per_chunk_data) * max_commands, NULL, storage_flags);
+    buf->chunk_data = glMapNamedBufferRange(buf->chunk_data_buffer, 0, sizeof(struct per_chunk_data) * max_commands, mapping_flags);
 
     return buf;
 }
@@ -272,7 +272,7 @@ void worldrnd_queue_chunk(struct worldrnd *rnd, struct chunk *c) {
 
     int index = buf->cmds_count;
     buf->cmds[index] = cmd;
-    buf->chunk_pos_data[index] = (ivec3){c->x * C_SIZE, c->y * C_SIZE, c->z * C_SIZE};
+    buf->chunk_data[index] = (struct per_chunk_data){c->x * C_SIZE, c->y * C_SIZE, c->z * C_SIZE, c->tint};
     buf->cmds_count++;
     rnd->added_cmds_count++;
 }
@@ -295,8 +295,7 @@ void worldrnd_draw(struct worldrnd *rnd, struct cam *cam, GLuint program, GLuint
         if (buf->cmds_count == 0)
             continue;
 
-        // TODO: check to see if any is rendered
-        glFlushMappedNamedBufferRange(buf->chunk_pos_buffer, 0, sizeof(ivec3) * buf->cmds_count);
+        glFlushMappedNamedBufferRange(buf->chunk_data_buffer, 0, sizeof(struct per_chunk_data) * buf->cmds_count);
         glFlushMappedNamedBufferRange(buf->cmd_buffer, 0, sizeof(struct draw_command) * buf->cmds_count);
 
         for (int i = 0; i < buf->flush_range_count; i++) {
@@ -310,7 +309,7 @@ void worldrnd_draw(struct worldrnd *rnd, struct cam *cam, GLuint program, GLuint
         glMemoryBarrier(GL_VERTEX_ATTRIB_ARRAY_BARRIER_BIT | GL_ELEMENT_ARRAY_BARRIER_BIT);
 
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, buf->buffer);
-        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, buf->chunk_pos_buffer);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, buf->chunk_data_buffer);
         glBindBuffer(GL_DRAW_INDIRECT_BUFFER, buf->cmd_buffer);
         glMultiDrawArraysIndirect(GL_TRIANGLES, 0, buf->cmds_count, 0);
         rnd->draw_count++;

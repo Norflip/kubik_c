@@ -24,6 +24,11 @@ struct draw_command {
     GLuint baseInstance;
 };
 
+struct per_chunk_data {
+    int x, y, z;
+    col32_t tint;
+};
+
 // chunk draw buffer
 // TODO: rename it?
 struct drawbuf {
@@ -43,8 +48,8 @@ struct drawbuf {
     int cmds_count, cmds_cap;
 
     // per chunk data, same count as cmds_count
-    GLuint chunk_pos_buffer;
-    ivec3 *chunk_pos_data;
+    GLuint chunk_data_buffer;
+    struct per_chunk_data  *chunk_data;
 };
 
 struct worldrnd {

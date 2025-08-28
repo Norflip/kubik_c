@@ -5,8 +5,9 @@ struct quad {
     uint tex;
 };
 
-struct chunk_pos {
+struct chunk_data {
     int x, y, z;
+    uint tint;
 };
 
 layout(location = 0) uniform mat4 vp;
@@ -15,8 +16,8 @@ layout(std430, binding = 0) buffer QuadBuffer {
     quad quads[];
 };
 
-layout(std430, binding = 1) buffer PosBuffer {
-    chunk_pos chunk_positions[];
+layout(std430, binding = 1) buffer ChunkDataBuffer {
+    chunk_data per_chunk_data[];
 };
 
 const ivec3 VOXEL_CORNERS[8] = ivec3[8](
@@ -56,6 +57,7 @@ const float AO_VALUES[4] = float[](0.0, 0.4, 0.7, 1.0);
 out VSOut {
     flat uint texIndex;
     flat uint face;
+    flat uint tint;
     vec2 uv;
     float ao;
 } outData;
@@ -94,13 +96,14 @@ void main () {
     ivec3 voxel_pos = VOXEL_CORNERS[c_index];
 
     ivec3 wpos = voxel_pos + pos;
-    wpos.x += chunk_positions[gl_DrawID].x;
-    wpos.y += chunk_positions[gl_DrawID].y;
-    wpos.z += chunk_positions[gl_DrawID].z;
+    wpos.x += per_chunk_data[gl_DrawID].x;
+    wpos.y += per_chunk_data[gl_DrawID].y;
+    wpos.z += per_chunk_data[gl_DrawID].z;
     gl_Position = vp * vec4(vec3(wpos), 1.0);
 
     outData.texIndex = q.tex;
     outData.face = face;
+    outData.tint = per_chunk_data[gl_DrawID].tint;
     //uint uv_corner_offset = rng_value(idx / 6) % 4;
     //outData.uv = corner_uv_lookup[(uv_corner_offset + corner_idx) % 4];
     outData.uv = corner_uv_lookup[corner_idx];

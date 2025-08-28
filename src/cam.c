@@ -58,7 +58,8 @@ static void create_frustum(mat4 m, vec4 *frustum) {
 }
 
 static void update_projection(struct cam *cam) {
-    cam->proj = m4_perspective(cam->fov, cam->aspect, CAM_NEAR_Z, CAM_FAR_Z);
+    float aspect = (float)cam->width / (float)cam->height;
+    cam->proj = m4_perspective(cam->fov, aspect, CAM_NEAR_Z, CAM_FAR_Z);
     cam->dirty = true;
 }
 
@@ -71,14 +72,16 @@ static void update_view(struct cam *cam) {
 void cam_initialize(struct cam *cam, int width, int height, float fov) {
     memset(cam, 0, sizeof(struct cam));
     cam->fov = fov;
-    cam->aspect = (float)width / (float)height;
+    cam->width = width;
+    cam->height = height;
     cam->pos = V3_ZERO;
     cam->rot = quat_identity();
     update_projection(cam);
 }
 
 void cam_resize(struct cam *cam, int width, int height) {
-    cam->aspect = (float)width / (float)height;
+    cam->width = width;
+    cam->height = height;
     update_projection(cam);
 }
 
@@ -107,6 +110,39 @@ void cam_update(struct cam *cam) {
         update_view(cam);
         cam->dirty = false;
     }
+}
+
+void cam_screen_to_ray(struct cam *cam, int x, int y, vec3 *out_origin, vec3 *out_dir) {
+    #if 0
+    float ndc_x = (2.0f * x) / (float)cam->width - 1.0f;
+    float ndc_y = 1.0f - (2.0f * y) / (float)cam->height;
+
+    vec4 ray_clip = (vec4){ndc_x, ndc_y, -1.0f, 1.0f};
+    vec4 ray_eye = m4_mulv4(m4_inverse(cam->proj), ray_clip);
+    ray_eye = (vec4){ray_eye.x, ray_eye.y, -1.0f, 0.0f};
+
+    vec3 ray_world = quat_mulv(cam->rot, (vec3){ray_eye.x, ray_eye.y, ray_eye.z});
+    ray_world = v3_normalize(ray_world);
+
+    *out_origin = cam->pos;
+    *out_dir = ray_world;
+#else
+    float ndc_x = (2.0f * x) / (float)cam->width - 1.0f;
+    float ndc_y = (2.0f * y) / (float)cam->height - 1.0f;
+
+    vec4 ray_clip = (vec4){ndc_x, ndc_y, -1.0f, 1.0f};
+    vec4 ray_eye = m4_mulv4(m4_inverse(cam->proj), ray_clip);
+    ray_eye = (vec4){ray_eye.x, ray_eye.y, -1.0f, 0.0f};
+
+    vec3 ray_world = quat_mulv(cam->rot, (vec3){ray_eye.x, ray_eye.y, ray_eye.z});
+    ray_world = v3_normalize(ray_world);
+    
+    // Flip the entire ray direction
+    ray_world = v3_scale(ray_world, -1.0f);
+
+    *out_origin = cam->pos;
+    *out_dir = ray_world;
+#endif
 }
 
 bool cam_aabb_in_view(const struct cam *cam, vec3 min, vec3 max) {

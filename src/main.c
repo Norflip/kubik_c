@@ -126,6 +126,9 @@ int main() {
     int atlas_depth = 0;
     GLuint chunk_atlas = gfx_load_atlas("atlas", atlas_paths, 5, 8, 8, 5, &atlas_depth);
 
+    vec3 ro, rd;
+    struct world_hit hit = {0};
+
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
 
@@ -134,6 +137,18 @@ int main() {
         prev_frame = curr_frame;
 
         cam_fps_update(&camera, window, dt);
+
+        if (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS) {
+            // cursor screen pos
+            double mouse_x, mouse_y;
+            glfwGetCursorPos(window, &mouse_x, &mouse_y);
+            cam_screen_to_ray(&camera, (int)mouse_x, (int)mouse_y, &ro, &rd);
+            world_trace(&world, ro, rd, 100.0f, &hit);
+        }
+
+        vec3 hit_pos = v3_add(v3_cast(hit.pos), (vec3){0.5f, 0.5f, 0.5f});
+        dbg_cube(hit_pos, (vec3){0.54f, 0.54f, 0.54f}, C32_WHITE);
+        dbg_line(hit_pos, v3_add(hit_pos, v3_cast(hit.normal)), C32_YELLOW);
 
         // rendering start
         ImGui_ImplOpenGL3_NewFrame();
@@ -168,6 +183,15 @@ int main() {
             igSeparatorText("Player");
             igText("position: (%d, %d, %d)", (int)camera.pos.x, (int)camera.pos.y, (int)camera.pos.z);
             igText("chunk: (%d, %d, %d)", u_idiv((int)camera.pos.x, C_SIZE), u_idiv((int)camera.pos.y, C_SIZE), u_idiv((int)camera.pos.z, C_SIZE));
+            igText("ro: %.1f, %.1f, %.1f", ro.x, ro.y, ro.z);
+            igText("rd: %.1f, %.1f, %.1f", rd.x, rd.y, rd.z);
+            igText("hit: %d", hit.did_hit);
+            if (hit.did_hit) {
+                igText("hit block: %s [%i]", block_name(hit.block), (int)hit.block);
+                igText("hit pos: (%d, %d, %d)", hit.pos.x, hit.pos.y, hit.pos.z);
+                igText("hit normal: (%d, %d, %d)", hit.normal.x, hit.normal.y, hit.normal.z);
+                igText("hit distance: %.1f", hit.distance);
+            }
 
             igSeparatorText("World");
             igText("Chunk Count: %d", world.chunk_count);

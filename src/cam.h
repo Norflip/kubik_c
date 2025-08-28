@@ -6,7 +6,8 @@
 struct cam {
     vec3 pos;
     vec4 rot;
-    float fov, aspect;
+    float fov;
+    int width, height;
     mat4 proj, view;
     mat4 view_proj;
     vec4 frustum[6];
@@ -21,6 +22,7 @@ void cam_look_at(struct cam *cam, vec3 pos);
 vec3 cam_relative_vec(const struct cam *cam, vec3 v);
 void cam_update(struct cam *cam);
 
+void cam_screen_to_ray (struct cam* cam, int x, int y, vec3* out_origin, vec3* out_dir);
 bool cam_aabb_in_view (const struct cam *cam, vec3 min, vec3 max);
 
 mat4 cam_view_proj(struct cam *cam);

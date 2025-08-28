@@ -36,7 +36,7 @@ void chunk_initialize(struct chunk *c, int x, int y, int z) {
     c->y = y;
     c->z = z;
     c->_canary = C_CANARY;
-    c->tint = C32_WHITE;
+    c->tint = C32_CLEAR;
     c->min = (vec3){(float)c->x * C_SIZE, (float)c->y * C_SIZE, (float)c->z * C_SIZE};
     c->max = (vec3){(float)(c->x + 1) * C_SIZE, (float)(c->y + 1) * C_SIZE, (float)(c->z + 1) * C_SIZE};
 }
@@ -285,15 +285,15 @@ void tmp_fill_chunk_data(struct chunk *c, bool fill_padding) {
             for (int y = 0; y < height; y++) {
                 int index = zxy_index_l(x, y, z);
 
-                block_t block = BLOCK_STONE;
+                block_t block = BLK_STONE;
                 if (y == 0)
-                    block = BLOCK_BASE;
+                    block = BLK_BASE;
 
                 if (x > 14 && x < 20 && z > 14 && z < 20)
-                    block = BLOCK_DIRT;
+                    block = BLK_DIRT;
 
                 if (y == height - 1)
-                    block = BLOCK_GRASS;
+                    block = BLK_GRASS;
 
                 chunk_set_block(c, x, y, z, block);
             }
@@ -317,7 +317,7 @@ void tmp_fill_chunk_data(struct chunk *c, bool fill_padding) {
                 for (int x = -1; x <= C_SIZE; x++) {
                     if (x == -1 || y == -1 || z == -1 || x == C_SIZE || y == C_SIZE || z == C_SIZE) {
                         int index = zxy_index_l(x + 1, y + 1, z + 1);
-                        c->blocks[index] = BLOCK_STONE;
+                        c->blocks[index] = BLK_STONE;
                     }
                 }
             }

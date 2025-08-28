@@ -41,8 +41,15 @@ float v3_lensqr(vec3 v) {
     return v.x * v.x + v.y * v.y + v.z * v.z;
 }
 
+// ivec3
 
+ivec3 iv3_add(ivec3 a, ivec3 b) {
+    return (ivec3){a.x + b.x, a.y + b.y, a.z + b.z};
+}
 
+ivec3 iv3_floor(vec3 v) {
+    return (ivec3){(int)floorf(v.x), (int)floorf(v.y), (int)floorf(v.z)};
+}
 
 // mat4
 mat4 m4_identity() {
@@ -158,7 +165,16 @@ mat4 m4_mul(mat4 a, mat4 b) {
     return res;
 }
 
-vec3 m4_mulv(mat4 m, vec3 v) {
+vec4 m4_mulv4(mat4 m, vec4 v) {
+    vec4 out = {0};
+    out.x = m.m[m4_index(0, 0)] * v.x + m.m[m4_index(0, 1)] * v.y + m.m[m4_index(0, 2)] * v.z + m.m[m4_index(0, 3)] * v.w;
+    out.y = m.m[m4_index(1, 0)] * v.x + m.m[m4_index(1, 1)] * v.y + m.m[m4_index(1, 2)] * v.z + m.m[m4_index(1, 3)] * v.w;
+    out.z = m.m[m4_index(2, 0)] * v.x + m.m[m4_index(2, 1)] * v.y + m.m[m4_index(2, 2)] * v.z + m.m[m4_index(2, 3)] * v.w;
+    out.w = m.m[m4_index(3, 0)] * v.x + m.m[m4_index(3, 1)] * v.y + m.m[m4_index(3, 2)] * v.z + m.m[m4_index(3, 3)] * v.w;
+    return out;
+}
+
+vec3 m4_mulv3(mat4 m, vec3 v) {
     vec3 out = {0};
     out.x = m.m[m4_index(0, 0)] * v.x + m.m[m4_index(0, 1)] * v.y + m.m[m4_index(0, 2)] * v.z; // + m.m[m4_index(0, 3)] * v.w;
     out.y = m.m[m4_index(1, 0)] * v.x + m.m[m4_index(1, 1)] * v.y + m.m[m4_index(1, 2)] * v.z; // + m.m[m4_index(1, 3)] * v.w;
@@ -173,71 +189,41 @@ mat4 m4_inverse(mat4 m) {
     mat4 dst = {0};
     if (d != 0.0f) {
         const float inv_det = 1.0f / d;
-        dst.m[0] = inv_det * (m.m[9] * m.m[14] * m.m[7] - m.m[13] * m.m[10] * m.m[7] + m.m[13] * m.m[6] * m.m[11] -
-                              m.m[5] * m.m[14] * m.m[11] - m.m[9] * m.m[6] * m.m[15] + m.m[5] * m.m[10] * m.m[15]);
-        dst.m[1] = inv_det * (m.m[13] * m.m[10] * m.m[3] - m.m[9] * m.m[14] * m.m[3] - m.m[13] * m.m[2] * m.m[11] +
-                              m.m[1] * m.m[14] * m.m[11] + m.m[9] * m.m[2] * m.m[15] - m.m[1] * m.m[10] * m.m[15]);
-        dst.m[2] = inv_det * (m.m[5] * m.m[14] * m.m[3] - m.m[13] * m.m[6] * m.m[3] + m.m[13] * m.m[2] * m.m[7] -
-                              m.m[1] * m.m[14] * m.m[7] - m.m[5] * m.m[2] * m.m[15] + m.m[1] * m.m[6] * m.m[15]);
-        dst.m[3] = inv_det * (m.m[9] * m.m[6] * m.m[3] - m.m[5] * m.m[10] * m.m[3] - m.m[9] * m.m[2] * m.m[7] +
-                              m.m[1] * m.m[10] * m.m[7] + m.m[5] * m.m[2] * m.m[11] - m.m[1] * m.m[6] * m.m[11]);
-        dst.m[4] = inv_det * (m.m[12] * m.m[10] * m.m[7] - m.m[8] * m.m[14] * m.m[7] - m.m[12] * m.m[6] * m.m[11] +
-                              m.m[4] * m.m[14] * m.m[11] + m.m[8] * m.m[6] * m.m[15] - m.m[4] * m.m[10] * m.m[15]);
-        dst.m[5] = inv_det * (m.m[8] * m.m[14] * m.m[3] - m.m[12] * m.m[10] * m.m[3] + m.m[12] * m.m[2] * m.m[11] -
-                              m.m[0] * m.m[14] * m.m[11] - m.m[8] * m.m[2] * m.m[15] + m.m[0] * m.m[10] * m.m[15]);
-        dst.m[6] = inv_det * (m.m[12] * m.m[6] * m.m[3] - m.m[4] * m.m[14] * m.m[3] - m.m[12] * m.m[2] * m.m[7] +
-                              m.m[0] * m.m[14] * m.m[7] + m.m[4] * m.m[2] * m.m[15] - m.m[0] * m.m[6] * m.m[15]);
-        dst.m[7] = inv_det * (m.m[4] * m.m[10] * m.m[3] - m.m[8] * m.m[6] * m.m[3] + m.m[8] * m.m[2] * m.m[7] -
-                              m.m[0] * m.m[10] * m.m[7] - m.m[4] * m.m[2] * m.m[11] + m.m[0] * m.m[6] * m.m[11]);
-        dst.m[8] = inv_det * (m.m[8] * m.m[13] * m.m[7] - m.m[12] * m.m[9] * m.m[7] + m.m[12] * m.m[5] * m.m[11] -
-                              m.m[4] * m.m[13] * m.m[11] - m.m[8] * m.m[5] * m.m[15] + m.m[4] * m.m[9] * m.m[15]);
-        dst.m[9] = inv_det * (m.m[12] * m.m[9] * m.m[3] - m.m[8] * m.m[13] * m.m[3] - m.m[12] * m.m[1] * m.m[11] +
-                              m.m[0] * m.m[13] * m.m[11] + m.m[8] * m.m[1] * m.m[15] - m.m[0] * m.m[9] * m.m[15]);
-        dst.m[10] = inv_det * (m.m[4] * m.m[13] * m.m[3] - m.m[12] * m.m[5] * m.m[3] + m.m[12] * m.m[1] * m.m[7] -
-                               m.m[0] * m.m[13] * m.m[7] - m.m[4] * m.m[1] * m.m[15] + m.m[0] * m.m[5] * m.m[15]);
-        dst.m[11] = inv_det * (m.m[8] * m.m[5] * m.m[3] - m.m[4] * m.m[9] * m.m[3] - m.m[8] * m.m[1] * m.m[7] +
-                               m.m[0] * m.m[9] * m.m[7] + m.m[4] * m.m[1] * m.m[11] - m.m[0] * m.m[5] * m.m[11]);
-        dst.m[12] = inv_det * (m.m[12] * m.m[9] * m.m[6] - m.m[8] * m.m[13] * m.m[6] - m.m[12] * m.m[5] * m.m[10] +
-                               m.m[4] * m.m[13] * m.m[10] + m.m[8] * m.m[5] * m.m[14] - m.m[4] * m.m[9] * m.m[14]);
-        dst.m[13] = inv_det * (m.m[8] * m.m[13] * m.m[2] - m.m[12] * m.m[9] * m.m[2] + m.m[12] * m.m[1] * m.m[10] -
-                               m.m[0] * m.m[13] * m.m[10] - m.m[8] * m.m[1] * m.m[14] + m.m[0] * m.m[9] * m.m[14]);
-        dst.m[14] = inv_det * (m.m[12] * m.m[5] * m.m[2] - m.m[4] * m.m[13] * m.m[2] - m.m[12] * m.m[1] * m.m[6] +
-                               m.m[0] * m.m[13] * m.m[6] + m.m[4] * m.m[1] * m.m[14] - m.m[0] * m.m[5] * m.m[14]);
-        dst.m[15] = inv_det * (m.m[4] * m.m[9] * m.m[2] - m.m[8] * m.m[5] * m.m[2] + m.m[8] * m.m[1] * m.m[6] -
-                               m.m[0] * m.m[9] * m.m[6] - m.m[4] * m.m[1] * m.m[10] + m.m[0] * m.m[5] * m.m[10]);
+        dst.m[0] = inv_det * (m.m[9] * m.m[14] * m.m[7] - m.m[13] * m.m[10] * m.m[7] + m.m[13] * m.m[6] * m.m[11] - m.m[5] * m.m[14] * m.m[11] - m.m[9] * m.m[6] * m.m[15] + m.m[5] * m.m[10] * m.m[15]);
+        dst.m[1] = inv_det * (m.m[13] * m.m[10] * m.m[3] - m.m[9] * m.m[14] * m.m[3] - m.m[13] * m.m[2] * m.m[11] + m.m[1] * m.m[14] * m.m[11] + m.m[9] * m.m[2] * m.m[15] - m.m[1] * m.m[10] * m.m[15]);
+        dst.m[2] = inv_det * (m.m[5] * m.m[14] * m.m[3] - m.m[13] * m.m[6] * m.m[3] + m.m[13] * m.m[2] * m.m[7] - m.m[1] * m.m[14] * m.m[7] - m.m[5] * m.m[2] * m.m[15] + m.m[1] * m.m[6] * m.m[15]);
+        dst.m[3] = inv_det * (m.m[9] * m.m[6] * m.m[3] - m.m[5] * m.m[10] * m.m[3] - m.m[9] * m.m[2] * m.m[7] + m.m[1] * m.m[10] * m.m[7] + m.m[5] * m.m[2] * m.m[11] - m.m[1] * m.m[6] * m.m[11]);
+        dst.m[4] = inv_det * (m.m[12] * m.m[10] * m.m[7] - m.m[8] * m.m[14] * m.m[7] - m.m[12] * m.m[6] * m.m[11] + m.m[4] * m.m[14] * m.m[11] + m.m[8] * m.m[6] * m.m[15] - m.m[4] * m.m[10] * m.m[15]);
+        dst.m[5] = inv_det * (m.m[8] * m.m[14] * m.m[3] - m.m[12] * m.m[10] * m.m[3] + m.m[12] * m.m[2] * m.m[11] - m.m[0] * m.m[14] * m.m[11] - m.m[8] * m.m[2] * m.m[15] + m.m[0] * m.m[10] * m.m[15]);
+        dst.m[6] = inv_det * (m.m[12] * m.m[6] * m.m[3] - m.m[4] * m.m[14] * m.m[3] - m.m[12] * m.m[2] * m.m[7] + m.m[0] * m.m[14] * m.m[7] + m.m[4] * m.m[2] * m.m[15] - m.m[0] * m.m[6] * m.m[15]);
+        dst.m[7] = inv_det * (m.m[4] * m.m[10] * m.m[3] - m.m[8] * m.m[6] * m.m[3] + m.m[8] * m.m[2] * m.m[7] - m.m[0] * m.m[10] * m.m[7] - m.m[4] * m.m[2] * m.m[11] + m.m[0] * m.m[6] * m.m[11]);
+        dst.m[8] = inv_det * (m.m[8] * m.m[13] * m.m[7] - m.m[12] * m.m[9] * m.m[7] + m.m[12] * m.m[5] * m.m[11] - m.m[4] * m.m[13] * m.m[11] - m.m[8] * m.m[5] * m.m[15] + m.m[4] * m.m[9] * m.m[15]);
+        dst.m[9] = inv_det * (m.m[12] * m.m[9] * m.m[3] - m.m[8] * m.m[13] * m.m[3] - m.m[12] * m.m[1] * m.m[11] + m.m[0] * m.m[13] * m.m[11] + m.m[8] * m.m[1] * m.m[15] - m.m[0] * m.m[9] * m.m[15]);
+        dst.m[10] = inv_det * (m.m[4] * m.m[13] * m.m[3] - m.m[12] * m.m[5] * m.m[3] + m.m[12] * m.m[1] * m.m[7] - m.m[0] * m.m[13] * m.m[7] - m.m[4] * m.m[1] * m.m[15] + m.m[0] * m.m[5] * m.m[15]);
+        dst.m[11] = inv_det * (m.m[8] * m.m[5] * m.m[3] - m.m[4] * m.m[9] * m.m[3] - m.m[8] * m.m[1] * m.m[7] + m.m[0] * m.m[9] * m.m[7] + m.m[4] * m.m[1] * m.m[11] - m.m[0] * m.m[5] * m.m[11]);
+        dst.m[12] = inv_det * (m.m[12] * m.m[9] * m.m[6] - m.m[8] * m.m[13] * m.m[6] - m.m[12] * m.m[5] * m.m[10] + m.m[4] * m.m[13] * m.m[10] + m.m[8] * m.m[5] * m.m[14] - m.m[4] * m.m[9] * m.m[14]);
+        dst.m[13] = inv_det * (m.m[8] * m.m[13] * m.m[2] - m.m[12] * m.m[9] * m.m[2] + m.m[12] * m.m[1] * m.m[10] - m.m[0] * m.m[13] * m.m[10] - m.m[8] * m.m[1] * m.m[14] + m.m[0] * m.m[9] * m.m[14]);
+        dst.m[14] = inv_det * (m.m[12] * m.m[5] * m.m[2] - m.m[4] * m.m[13] * m.m[2] - m.m[12] * m.m[1] * m.m[6] + m.m[0] * m.m[13] * m.m[6] + m.m[4] * m.m[1] * m.m[14] - m.m[0] * m.m[5] * m.m[14]);
+        dst.m[15] = inv_det * (m.m[4] * m.m[9] * m.m[2] - m.m[8] * m.m[5] * m.m[2] + m.m[8] * m.m[1] * m.m[6] - m.m[0] * m.m[9] * m.m[6] - m.m[4] * m.m[1] * m.m[10] + m.m[0] * m.m[5] * m.m[10]);
     }
     return dst;
 }
 
 float m4_determinant(mat4 m) {
-    const float d = m.m[m4_index(0, 0)] * m.m[m4_index(1, 1)] * m.m[m4_index(2, 2)] * m.m[m4_index(3, 3)] +
-                    m.m[m4_index(0, 0)] * m.m[m4_index(1, 2)] * m.m[m4_index(2, 3)] * m.m[m4_index(3, 1)] +
-                    m.m[m4_index(0, 0)] * m.m[m4_index(1, 3)] * m.m[m4_index(2, 1)] * m.m[m4_index(3, 2)] +
-                    m.m[m4_index(0, 1)] * m.m[m4_index(1, 0)] * m.m[m4_index(2, 3)] * m.m[m4_index(3, 2)] +
-                    m.m[m4_index(0, 1)] * m.m[m4_index(1, 2)] * m.m[m4_index(2, 0)] * m.m[m4_index(3, 3)] +
-                    m.m[m4_index(0, 1)] * m.m[m4_index(1, 3)] * m.m[m4_index(2, 2)] * m.m[m4_index(3, 0)] +
-                    m.m[m4_index(0, 2)] * m.m[m4_index(1, 0)] * m.m[m4_index(2, 1)] * m.m[m4_index(3, 3)] +
-                    m.m[m4_index(0, 2)] * m.m[m4_index(1, 1)] * m.m[m4_index(2, 3)] * m.m[m4_index(3, 0)] +
-                    m.m[m4_index(0, 2)] * m.m[m4_index(1, 3)] * m.m[m4_index(2, 0)] * m.m[m4_index(3, 1)] +
-                    m.m[m4_index(0, 3)] * m.m[m4_index(1, 0)] * m.m[m4_index(2, 2)] * m.m[m4_index(3, 1)] +
-                    m.m[m4_index(0, 3)] * m.m[m4_index(1, 1)] * m.m[m4_index(2, 0)] * m.m[m4_index(3, 2)] +
-                    m.m[m4_index(0, 3)] * m.m[m4_index(1, 2)] * m.m[m4_index(2, 1)] * m.m[m4_index(3, 0)] -
-                    m.m[m4_index(0, 0)] * m.m[m4_index(1, 1)] * m.m[m4_index(2, 3)] * m.m[m4_index(3, 2)] -
-                    m.m[m4_index(0, 0)] * m.m[m4_index(1, 2)] * m.m[m4_index(2, 1)] * m.m[m4_index(3, 3)] -
-                    m.m[m4_index(0, 0)] * m.m[m4_index(1, 3)] * m.m[m4_index(2, 2)] * m.m[m4_index(3, 1)] -
-                    m.m[m4_index(0, 1)] * m.m[m4_index(1, 0)] * m.m[m4_index(2, 2)] * m.m[m4_index(3, 3)] -
-                    m.m[m4_index(0, 1)] * m.m[m4_index(1, 2)] * m.m[m4_index(2, 3)] * m.m[m4_index(3, 0)] -
-                    m.m[m4_index(0, 1)] * m.m[m4_index(1, 3)] * m.m[m4_index(2, 0)] * m.m[m4_index(3, 2)] -
-                    m.m[m4_index(0, 2)] * m.m[m4_index(1, 0)] * m.m[m4_index(2, 3)] * m.m[m4_index(3, 1)] -
-                    m.m[m4_index(0, 2)] * m.m[m4_index(1, 1)] * m.m[m4_index(2, 0)] * m.m[m4_index(3, 3)] -
-                    m.m[m4_index(0, 2)] * m.m[m4_index(1, 3)] * m.m[m4_index(2, 1)] * m.m[m4_index(3, 0)] -
-                    m.m[m4_index(0, 3)] * m.m[m4_index(1, 0)] * m.m[m4_index(2, 1)] * m.m[m4_index(3, 2)] -
-                    m.m[m4_index(0, 3)] * m.m[m4_index(1, 1)] * m.m[m4_index(2, 2)] * m.m[m4_index(3, 0)] -
-                    m.m[m4_index(0, 3)] * m.m[m4_index(1, 2)] * m.m[m4_index(2, 0)] * m.m[m4_index(3, 1)];
+    const float d = m.m[m4_index(0, 0)] * m.m[m4_index(1, 1)] * m.m[m4_index(2, 2)] * m.m[m4_index(3, 3)] + m.m[m4_index(0, 0)] * m.m[m4_index(1, 2)] * m.m[m4_index(2, 3)] * m.m[m4_index(3, 1)] +
+                    m.m[m4_index(0, 0)] * m.m[m4_index(1, 3)] * m.m[m4_index(2, 1)] * m.m[m4_index(3, 2)] + m.m[m4_index(0, 1)] * m.m[m4_index(1, 0)] * m.m[m4_index(2, 3)] * m.m[m4_index(3, 2)] +
+                    m.m[m4_index(0, 1)] * m.m[m4_index(1, 2)] * m.m[m4_index(2, 0)] * m.m[m4_index(3, 3)] + m.m[m4_index(0, 1)] * m.m[m4_index(1, 3)] * m.m[m4_index(2, 2)] * m.m[m4_index(3, 0)] +
+                    m.m[m4_index(0, 2)] * m.m[m4_index(1, 0)] * m.m[m4_index(2, 1)] * m.m[m4_index(3, 3)] + m.m[m4_index(0, 2)] * m.m[m4_index(1, 1)] * m.m[m4_index(2, 3)] * m.m[m4_index(3, 0)] +
+                    m.m[m4_index(0, 2)] * m.m[m4_index(1, 3)] * m.m[m4_index(2, 0)] * m.m[m4_index(3, 1)] + m.m[m4_index(0, 3)] * m.m[m4_index(1, 0)] * m.m[m4_index(2, 2)] * m.m[m4_index(3, 1)] +
+                    m.m[m4_index(0, 3)] * m.m[m4_index(1, 1)] * m.m[m4_index(2, 0)] * m.m[m4_index(3, 2)] + m.m[m4_index(0, 3)] * m.m[m4_index(1, 2)] * m.m[m4_index(2, 1)] * m.m[m4_index(3, 0)] -
+                    m.m[m4_index(0, 0)] * m.m[m4_index(1, 1)] * m.m[m4_index(2, 3)] * m.m[m4_index(3, 2)] - m.m[m4_index(0, 0)] * m.m[m4_index(1, 2)] * m.m[m4_index(2, 1)] * m.m[m4_index(3, 3)] -
+                    m.m[m4_index(0, 0)] * m.m[m4_index(1, 3)] * m.m[m4_index(2, 2)] * m.m[m4_index(3, 1)] - m.m[m4_index(0, 1)] * m.m[m4_index(1, 0)] * m.m[m4_index(2, 2)] * m.m[m4_index(3, 3)] -
+                    m.m[m4_index(0, 1)] * m.m[m4_index(1, 2)] * m.m[m4_index(2, 3)] * m.m[m4_index(3, 0)] - m.m[m4_index(0, 1)] * m.m[m4_index(1, 3)] * m.m[m4_index(2, 0)] * m.m[m4_index(3, 2)] -
+                    m.m[m4_index(0, 2)] * m.m[m4_index(1, 0)] * m.m[m4_index(2, 3)] * m.m[m4_index(3, 1)] - m.m[m4_index(0, 2)] * m.m[m4_index(1, 1)] * m.m[m4_index(2, 0)] * m.m[m4_index(3, 3)] -
+                    m.m[m4_index(0, 2)] * m.m[m4_index(1, 3)] * m.m[m4_index(2, 1)] * m.m[m4_index(3, 0)] - m.m[m4_index(0, 3)] * m.m[m4_index(1, 0)] * m.m[m4_index(2, 1)] * m.m[m4_index(3, 2)] -
+                    m.m[m4_index(0, 3)] * m.m[m4_index(1, 1)] * m.m[m4_index(2, 2)] * m.m[m4_index(3, 0)] - m.m[m4_index(0, 3)] * m.m[m4_index(1, 2)] * m.m[m4_index(2, 0)] * m.m[m4_index(3, 1)];
     return d;
 }
-
-
 
 // quat
 vec4 quat_identity() {
