@@ -1,21 +1,29 @@
 #include "world.h"
 #include "gfx.h"
+#include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#define FNL_IMPL
+#include <FastNoiseLite.h>
+
+#define NUM_JUMPS 8
+#define AXIS_STEPS (C_SIZE / NUM_JUMPS + 1)
+#define SAMPLE_VOLUME (AXIS_STEPS * AXIS_STEPS * AXIS_STEPS)
+#define SAMPLE_VOLUME_SIZE (AXIS_STEPS * AXIS_STEPS * AXIS_STEPS * sizeof(float))
 
 static inline int zxy_index_l(int x, int y, int z, int l) {
     return z + (x * l) + (y * l * l);
 }
 
-// TODO: too bulky, consider refactoring
-static inline void chunk_to_hunk(int x, int y, int z, int *hx, int *hz, int *lx, int *ly, int *lz, int *index) {
-    *hx = u_idiv(x, H_SIZE);
-    *hz = u_idiv(z, H_SIZE);
-    *lx = u_wrap(x, H_SIZE);
-    *ly = u_wrap(y, H_SIZE);
-    *lz = u_wrap(z, H_SIZE);
-    *index = zxy_index_l(u_wrap(*lx, H_SIZE), u_wrap(*ly, H_SIZE), u_wrap(*lz, H_SIZE), H_SIZE);
+static inline void relative_pos(int x, int y, int z, int size, int *hx, int *hy, int *hz, int *lx, int *ly, int *lz) {
+    *hx = u_idiv(x, size);
+    *hy = u_idiv(y, size);
+    *hz = u_idiv(z, size);
+    *lx = u_wrap(x, size);
+    *ly = u_wrap(y, size);
+    *lz = u_wrap(z, size);
 }
 
 static struct hunk *get_hunk(struct world *w, int x, int z) {
@@ -46,9 +54,10 @@ static struct chunk *add_chunk(struct world *w, int x, int y, int z, struct hunk
         return NULL;
 
     if (!hunk) {
-        int hx, hz, index;
+        int hx, _hy, hz;
         int lx, ly, lz;
-        chunk_to_hunk(x, y, z, &hx, &hz, &lx, &ly, &lz, &index);
+        relative_pos(x, y, z, H_SIZE, &hx, &_hy, &hz, &lx, &ly, &lz);
+
         hunk = get_hunk(w, hx, hz);
         if (hunk == NULL) {
             fprintf(stderr, "add_chunk: hunk (%d, %d) not found for chunk (%d, %d, %d)\n", hx, hz, x, y, z);
@@ -85,22 +94,19 @@ void world_init_demo(struct world *w) {
     for (int z = 0; z < SIZE; z++) {
         for (int y = 0; y < SIZE; y++) {
             for (int x = 0; x < SIZE; x++) {
-
-                int lcx = x - (SIZE / 2);
-                int lcy = y - (SIZE / 2);
-                int lcz = z - (SIZE / 2);
-
-                int hx, hz, index;
+                int hx, _hy, hz;
                 int lx, ly, lz;
-                chunk_to_hunk(lcx, lcy, lcz, &hx, &hz, &lx, &ly, &lz, &index);
+                relative_pos(x, y, z, H_SIZE, &hx, &_hy, &hz, &lx, &ly, &lz);
 
+                int index = zxy_index_l(lx, ly, lz, H_SIZE);
                 struct hunk *h = add_hunk(w, hx, hz);
-                add_chunk(w, lcx, lcy, lcz, h, index);
+                add_chunk(w, x, y, z, h, index);
             }
         }
     }
 
     printf("World initialized with %d chunks\n", w->chunk_count);
+    printf("Sampling %i instead of %i [%i jumps]\n", AXIS_STEPS * AXIS_STEPS * AXIS_STEPS, C_SIZE * C_SIZE * C_SIZE, NUM_JUMPS);
 
     // collect the neighbours
     for (int i = 0; i < w->chunk_count; i++) {
@@ -118,6 +124,7 @@ void world_init_demo(struct world *w) {
     for (int i = 0; i < w->chunk_count; i++) {
         struct chunk *c = w->chunks[i];
         tmp_fill_chunk_data(c, false);
+        world_gen_chunk_base(w, c);
     }
 
     // generate mesh after the data is done
@@ -130,31 +137,23 @@ void world_init_demo(struct world *w) {
 }
 
 struct chunk *world_get_chunk(struct world *w, int x, int y, int z) {
-
-    int hx, hz, index;
+    int hx, _hy, hz;
     int lx, ly, lz;
-    chunk_to_hunk(x, y, z, &hx, &hz, &lx, &ly, &lz, &index);
+    relative_pos(x, y, z, H_SIZE, &hx, &_hy, &hz, &lx, &ly, &lz);
     struct hunk *hunk = get_hunk(w, hx, hz);
-    if (!hunk) {
-        fprintf(stderr, "world_get_chunk: hunk (%d, %d) not found\n", hx, hz);
+    if (!hunk)
         return NULL;
-    }
+    int index = zxy_index_l(lx, ly, lz, H_SIZE);
     return hunk->chunks[index];
 }
 
 block_t world_get_block(struct world *w, int x, int y, int z) {
-    // world coordinates to chunk coordinates
-    int cx = u_idiv(x, C_SIZE);
-    int cy = u_idiv(y, C_SIZE);
-    int cz = u_idiv(z, C_SIZE);
+    int cx, cy, cz;
+    int lx, ly, lz;
+    relative_pos(x, y, z, C_SIZE, &cx, &cy, &cz, &lx, &ly, &lz);
     struct chunk *c = world_get_chunk(w, cx, cy, cz);
-    if (!c) {
+    if (!c)
         return BLK_AIR;
-    }
-
-    int lx = u_wrap(x, C_SIZE);
-    int ly = u_wrap(y, C_SIZE);
-    int lz = u_wrap(z, C_SIZE);
     return chunk_get_block(c, lx, ly, lz);
 }
 
@@ -231,4 +230,88 @@ bool world_trace(struct world *w, vec3 ro, vec3 rd, float max_distance, struct w
 
     hit->did_hit = false;
     return false;
+}
+
+float interp_grid_sample2(const float *buf, int x, int y, int z) {
+    assert(buf);
+    assert(x >= 0 && x < C_SIZE && y >= 0 && y < C_SIZE && z >= 0 && z < C_SIZE);
+
+    int x0 = x / NUM_JUMPS;
+    int y0 = y / NUM_JUMPS;
+    int z0 = z / NUM_JUMPS;
+
+    // if we are on a direct spot than we don't need to interpolate
+    if (x % NUM_JUMPS == 0 && y % NUM_JUMPS == 0 && z % NUM_JUMPS == 0)
+        return buf[zxy_index_l(x0, y0, z0, AXIS_STEPS)];
+
+    // printf("Sampling at (%d, %d, %d) low (%d, %d, %d), high (%d, %d, %d)\n", x, y, z, x0, y0, z0, x1, y1, z1);
+    // printf("low index (%d, %d, %d), high index (%d, %d, %d)\n", x0 * SAMPLE_GRID_JUMPS, y0 * SAMPLE_GRID_JUMPS, z0 * SAMPLE_GRID_JUMPS, x1 * SAMPLE_GRID_JUMPS, y1 * SAMPLE_GRID_JUMPS, z1 * SAMPLE_GRID_JUMPS);
+
+    float sx = (float)(x % NUM_JUMPS) / NUM_JUMPS;
+    float sy = (float)(y % NUM_JUMPS) / NUM_JUMPS;
+    float sz = (float)(z % NUM_JUMPS) / NUM_JUMPS;
+
+    const int x1 = x0 + 1;
+    const int y1 = y0 + 1;
+    const int z1 = z0 + 1;
+    float c000 = buf[zxy_index_l(x0, y0, z0, AXIS_STEPS)];
+    float c100 = buf[zxy_index_l(x1, y0, z0, AXIS_STEPS)];
+    float v00 = u_lerp(c000, c100, sx);
+
+    float c010 = buf[zxy_index_l(x0, y1, z0, AXIS_STEPS)];
+    float c110 = buf[zxy_index_l(x1, y1, z0, AXIS_STEPS)];
+    float v10 = u_lerp(c010, c110, sx);
+
+    float c001 = buf[zxy_index_l(x0, y0, z1, AXIS_STEPS)];
+    float c101 = buf[zxy_index_l(x1, y0, z1, AXIS_STEPS)];
+    float v01 = u_lerp(c001, c101, sx);
+
+    float c011 = buf[zxy_index_l(x0, y1, z1, AXIS_STEPS)];
+    float c111 = buf[zxy_index_l(x1, y1, z1, AXIS_STEPS)];
+    float v11 = u_lerp(c011, c111, sx);
+
+    float v0 = u_lerp(v00, v10, sy);
+    float v1 = u_lerp(v01, v11, sy);
+    return u_lerp(v0, v1, sz);
+}
+
+void world_gen_chunk_base(struct world *w, struct chunk *c) {
+
+    float samples[SAMPLE_VOLUME];
+    memset(samples, 0, sizeof(samples));
+
+    fnl_state state = fnlCreateState(0);
+    state.noise_type = FNL_NOISE_OPENSIMPLEX2;
+    float scale = 2.001f;
+
+    for (int z = 0; z < AXIS_STEPS; z++) {
+        for (int x = 0; x < AXIS_STEPS; x++) {
+            for (int y = 0; y < AXIS_STEPS; y++) {
+                int dx = (c->x * C_SIZE + (x * NUM_JUMPS)) * scale;
+                int dy = (c->y * C_SIZE + (y * NUM_JUMPS)) * scale;
+                int dz = (c->z * C_SIZE + (z * NUM_JUMPS)) * scale;
+                int index = zxy_index_l(x, y, z, AXIS_STEPS);
+                samples[index] = fnlGetNoise3D(&state, dx, dy, dz);
+            }
+        }
+    }
+
+    for (int z = 0; z < C_SIZE; z++) {
+        for (int x = 0; x < C_SIZE; x++) {
+            for (int y = 0; y < C_SIZE; y++) {
+
+                int wx = x + c->x * C_SIZE;
+                int wy = y + c->y * C_SIZE;
+                int wz = z + c->z * C_SIZE;
+
+                // float n = fnlGetNoise3D(&state, wx * scale, wy * scale, wz * scale);
+                float n = interp_grid_sample2(samples, x, y, z);
+
+                block_t block = BLK_AIR;
+                if (n > 0)
+                    block = BLK_STONE;
+                chunk_set_block(c, x, y, z, block);
+            }
+        }
+    }
 }

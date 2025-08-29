@@ -1,8 +1,9 @@
 #ifndef UTILS_H
 #define UTILS_H
-#include <stdint.h>
 #include "maf.h"
+#include <stdint.h>
 
+// TODO: remove?
 typedef uint8_t u8;
 typedef uint32_t u32;
 typedef uint64_t u64;
@@ -11,10 +12,12 @@ typedef uint64_t u64;
 #define u_offsetof(T, _m) ((size_t)&((T *)0)->_m)
 #define u_wrap(x, l) ((((x) % (l)) + (l)) % (l))
 #define u_idiv(x, d) ((x > 0) ? (x) / (d) : ((x) - (d) + 1) / (d))
+#define u_lerp(a, b, t) ((a) + (t) * ((b) - (a)))
 
 #define KB(x) ((x) * 1024)
 #define MB(x) ((x) * 1024 * 1024)
 
+// colors
 typedef uint32_t col32_t;
 #define C32_WHITE 0xFFFFFFFF
 #define C32_BLACK 0x000000FF

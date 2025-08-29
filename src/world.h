@@ -21,8 +21,10 @@ struct world {
 
     struct hunk **hunks;
     int hunk_count, hunk_cap;
-
     bool initialized;
+
+    
+
     struct worldrnd rnd;
 };
 
@@ -38,5 +40,7 @@ struct chunk *world_get_chunk(struct world *w, int x, int y, int z);
 block_t world_get_block(struct world *w, int x, int y, int z);
 void world_draw(struct world *w, struct cam *cam, GLuint program, GLuint atlas, int atlas_depth);
 bool world_trace(struct world *w, vec3 o, vec3 dir, float max_distance, struct world_hit *hit);
+
+void world_gen_chunk_base (struct world* w, struct chunk* c);
 
 #endif // WORLD_H

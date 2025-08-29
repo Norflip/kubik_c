@@ -135,31 +135,6 @@ static bool find_space(struct worldrnd *rnd, size_t page_count, struct drawbuf *
             *pos_out = start_page;
             return true;
         } else {
-
-            /*
-            for (size_t i = 0; i < BITMAP_WORD_COUNT * BITS_PER_WORD; i++) {
-                if (test_bit(buf->page_bitmap, i)) {
-                    printf("o");
-                } else {
-                    printf("X");
-                }
-            }
-            printf("\n");
-            */
-            fprintf(stderr, "find_space: no contiguous block found in buffer %d\n", i);
-            fprintf(stderr, "  free pages: %zu\n", buf->free_pages);
-            fprintf(stderr, "  start page: %zu / %zu\n", start_page, PAGE_COUNT);
-            fprintf(stderr, "  page bitmap: ");
-            /*
-            for (size_t j = 0; j < BITMAP_WORD_COUNT * BITS_PER_WORD; j++) {
-                if (test_bit(buf->page_bitmap, j)) {
-                    printf("o");
-                } else {
-                    printf("X");
-                }
-            }
-            printf("\n");
-            */
             break;
         }
     }
