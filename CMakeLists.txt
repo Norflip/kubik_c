@@ -43,6 +43,7 @@ set(SRC_FILES
   src/chunk.c
   src/world.c
   src/render.c
+  src/platf.c
 )
 
 add_executable(kubik ${SRC_FILES})

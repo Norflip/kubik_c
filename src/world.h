@@ -5,6 +5,7 @@
 #include "maf.h"
 #include "render.h"
 #include "utils.h"
+#include "platf.h"
 
 #define H_SIZE 16
 #define H_SIZE3 (H_SIZE * H_SIZE * H_SIZE)
@@ -24,7 +25,7 @@ struct world {
 
     struct hunk **hunks;
     int hunk_count, hunk_cap;
-
+    thrd_t test_worker_thrd;
     struct worldrnd rnd;
 };
 

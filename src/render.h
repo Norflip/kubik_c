@@ -1,6 +1,7 @@
 #ifndef RND_H
 #define RND_H
 #include "cam.h"
+#include "platf.h"
 #include "utils.h"
 #include <glad/gl.h>
 #include <stdbool.h>
@@ -49,7 +50,7 @@ struct drawbuf {
 
     // per chunk data, same count as cmds_count
     GLuint chunk_data_buffer;
-    struct per_chunk_data  *chunk_data;
+    struct per_chunk_data *chunk_data;
 };
 
 struct worldrnd {
@@ -57,6 +58,8 @@ struct worldrnd {
     struct drawbuf **drawbuf;
     int drawbuf_count, drawbuf_cap;
     int max_commands;
+    mtx_t upload_lock;
+    mtx_t cmd_lock;
 
     // stats
     int draw_count;

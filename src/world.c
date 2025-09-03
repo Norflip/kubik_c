@@ -78,6 +78,31 @@ static struct chunk *add_chunk(struct world *w, int x, int y, int z, struct hunk
     return c;
 }
 
+static void *m_test_worker(void *arg) {
+    struct world *w = (struct world *)arg;
+    while (!w->initialized)
+        thrd_sleep(100);
+
+    // generate data after neighbours
+    for (int i = 0; i < w->chunk_count; i++) {
+        struct chunk *c = w->chunks[i];
+        tmp_fill_chunk_data(c, false);
+        world_gen_chunk_base(w, c);
+    }
+
+    // generate mesh after the data is done
+    void *quads = malloc(C_SIZE3 * sizeof(struct mesh_quad));
+    void *mesh_data = NULL;
+    for (int i = 0; i < w->chunk_count; i++) {
+        struct chunk *c = w->chunks[i];
+        size_t quad_count = chunk_generate_mesh_data(c, quads);
+        worldrnd_upload(&w->rnd, c, quads, quad_count * sizeof(struct mesh_quad));
+    }
+
+    free(quads);
+    return NULL;
+}
+
 void world_init(struct world *w, int seed) {
     memset(w, 0, sizeof(struct world));
 
@@ -98,7 +123,7 @@ void world_init(struct world *w, int seed) {
 
 void world_generate_initiale(struct world *w) {
     assert(w->initialized);
-    const int SIZE = 4;
+    const int SIZE = 8;
     for (int z = 0; z < SIZE; z++) {
         for (int y = 0; y < SIZE; y++) {
             for (int x = 0; x < SIZE; x++) {
@@ -128,23 +153,7 @@ void world_generate_initiale(struct world *w) {
         }
     }
 
-    // generate data after neighbours
-    for (int i = 0; i < w->chunk_count; i++) {
-        struct chunk *c = w->chunks[i];
-        tmp_fill_chunk_data(c, false);
-        world_gen_chunk_base(w, c);
-    }
-
-    // generate mesh after the data is done
-    void *quads = malloc(C_SIZE3 * sizeof(struct mesh_quad));
-    void *mesh_data = NULL;
-    for (int i = 0; i < w->chunk_count; i++) {
-        struct chunk *c = w->chunks[i];
-        size_t quad_count = chunk_generate_mesh_data(c, quads);
-        worldrnd_upload(&w->rnd, c, quads, quad_count * sizeof(struct mesh_quad));
-    }
-
-    free(quads);
+    thrd_init(&w->test_worker_thrd, m_test_worker, w);
 }
 
 struct chunk *world_get_chunk(struct world *w, int x, int y, int z) {
@@ -308,11 +317,9 @@ void world_gen_chunk_base(struct world *w, struct chunk *c) {
     state.noise_type = FNL_NOISE_PERLIN;
     state.octaves = 4;
 
-    float scale = 2.001f;
+    const int world_height = 140;
+    const float scale = 3.001f;
     fill_samples(samples, c, &state, scale);
-
-    const int world_height = 40;
-    #define WORLD_DENSITY_THRESHOLD 0.1f
 
     for (int z = 0; z < C_SIZE; z++) {
         for (int x = 0; x < C_SIZE; x++) {
@@ -326,7 +333,7 @@ void world_gen_chunk_base(struct world *w, struct chunk *c) {
 
                 float density_mod = (world_height - wy) * squish_factor;
                 block_t block = BLK_AIR;
-                if (n + density_mod > WORLD_DENSITY_THRESHOLD)
+                if (n + density_mod > 0.0f)
                     block = BLK_STONE;
 
                 chunk_set_block(c, x, y, z, block);
