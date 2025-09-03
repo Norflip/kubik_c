@@ -211,14 +211,16 @@ static void get_face_ao(struct chunk *c, int x, int y, int z, int face, uint8_t 
 #undef ao_value
 }
 
-int chunk_generate_mesh_data(struct chunk *c, void **data) {
+size_t chunk_generate_mesh_data (struct chunk *c, void *buffer) {
     ASSERT_CHUNK(c);
     if (c->fill_count <= 0 || !c->dirty) {
         return 0;
     }
 
     const size_t max_faces = c->fill_count * 6; // 6 faces per block
-    struct mesh_quad *quads = malloc(max_faces * sizeof(struct mesh_quad));
+    struct mesh_quad *quads = buffer;
+    // malloc(max_faces * sizeof(struct mesh_quad));
+
     if (!quads) {
         fprintf(stderr, "chunk_generate_mesh_data: failed to allocate memory for quads\n");
         return 0;
@@ -226,7 +228,6 @@ int chunk_generate_mesh_data(struct chunk *c, void **data) {
 
     size_t added = 0;
     u8 ao[4] = {0, 0, 0, 0};
-
     for (int y = 0; y < C_SIZE; y++) {
         for (int x = 0; x < C_SIZE; x++) {
             for (int z = 0; z < C_SIZE; z++) {
@@ -254,7 +255,6 @@ int chunk_generate_mesh_data(struct chunk *c, void **data) {
 
     c->quad_count = added;
     c->dirty = false;
-    *data = quads;
     return added;
 }
 

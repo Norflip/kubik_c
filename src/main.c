@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #define CIMGUI_USE_GLFW
 #define CIMGUI_USE_OPENGL3
@@ -22,6 +23,7 @@
 static GLFWwindow *window;
 static int window_width, window_height;
 static bool draw_wireframe = false;
+static bool draw_lines = true;
 static bool vsync = true;
 
 static void glfw_error_cb(int error, const char *description);
@@ -111,7 +113,8 @@ int main() {
     cam_initialize(&camera, window_width, window_height, to_rad(45.0f));
 
     struct world world;
-    world_init_demo(&world);
+    world_init(&world, 0);
+    world_generate_initiale(&world);
 
     GLuint chunk_program = gfx_load_program("chunk", asset_path("chunk.vs"), asset_path("chunk.fs"));
 
@@ -171,14 +174,19 @@ int main() {
         // tmp_world_draw(&world, &camera, chunk_program, chunk_atlas, atlas_depth);
         world_draw(&world, &camera, chunk_program, chunk_atlas, atlas_depth);
 
-        gfx_tmp_draw_lines(&camera);
+        if (draw_lines)
+            gfx_tmp_draw_lines(&camera);
+        else
+            gfx_clear_lines();
 
         igSetNextWindowPos((ImVec2){0, 0}, ImGuiCond_Always, (ImVec2){0, 0});
         igBegin(" ", NULL, 0);
         {
             igText("application average %.3f ms/frame (%.1f FPS)", 1000.0f / igGetIO()->Framerate, igGetIO()->Framerate);
             igText("time since start: %.1f s", glfwGetTime() - start_time);
+            igText("wireframe: %s (F1 to toggle)", draw_wireframe ? "[ON]" : "[OFF]");
             igText("vsync: %s (F2 to toggle)", vsync ? "[ON]" : "[OFF]");
+            igText("debug lines: %s (F3 to toggle)", draw_lines ? "[ON]" : "[OFF]");
 
             igSeparatorText("Player");
             igText("position: (%d, %d, %d)", (int)camera.pos.x, (int)camera.pos.y, (int)camera.pos.z);
@@ -194,6 +202,7 @@ int main() {
             }
 
             igSeparatorText("World");
+            igText("Seed: %d", world.seed);
             igText("Chunk Count: %d", world.chunk_count);
             igText("Hunk Count: %d", world.hunk_count);
             igText("Draw Calls: %d", world.rnd.draw_count);
@@ -246,6 +255,10 @@ static void glfw_key_callback(GLFWwindow *window, int key, int scancode, int act
     if (action == GLFW_PRESS && key == GLFW_KEY_F2) {
         vsync = !vsync;
         glfwSwapInterval(vsync ? 1 : 0);
+    }
+
+    if (action == GLFW_PRESS && key == GLFW_KEY_F3) {
+        draw_lines = !draw_lines;
     }
 
     // if (igGetIO()->WantCaptureKeyboard)return;

@@ -139,6 +139,10 @@ void gfx_tmp_draw_lines(struct cam *c) {
     l_count = 0;
 }
 
+void gfx_clear_lines(void) {
+    l_count = 0;
+}
+
 GLuint gfx_load_program(const char *name, const char *vspath, const char *fspath) {
     GLuint vs_shader, fs_shader;
     vs_shader = load_shader(name, vspath, GL_VERTEX_SHADER);

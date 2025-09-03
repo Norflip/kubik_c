@@ -8,7 +8,7 @@
 #define FNL_IMPL
 #include <FastNoiseLite.h>
 
-#define NUM_JUMPS 8
+#define NUM_JUMPS 4
 #define AXIS_STEPS (C_SIZE / NUM_JUMPS + 1)
 #define SAMPLE_VOLUME (AXIS_STEPS * AXIS_STEPS * AXIS_STEPS)
 #define SAMPLE_VOLUME_SIZE (AXIS_STEPS * AXIS_STEPS * AXIS_STEPS * sizeof(float))
@@ -78,9 +78,13 @@ static struct chunk *add_chunk(struct world *w, int x, int y, int z, struct hunk
     return c;
 }
 
-void world_init_demo(struct world *w) {
+void world_init(struct world *w, int seed) {
+    memset(w, 0, sizeof(struct world));
 
     const int SIZE = 8;
+    w->initialized = true;
+    w->seed = seed;
+
     w->chunk_count = 0;
     w->chunk_cap = SIZE * SIZE * SIZE;
     w->chunks = malloc(sizeof(struct chunk) * w->chunk_cap);
@@ -89,8 +93,12 @@ void world_init_demo(struct world *w) {
     w->hunk_cap = 9;
     w->hunks = malloc(sizeof(struct hunk *) * w->hunk_cap);
 
-    worldrnd_init(&w->rnd, 512);
+    worldrnd_init(&w->rnd, H_SIZE3);
+}
 
+void world_generate_initiale(struct world *w) {
+    assert(w->initialized);
+    const int SIZE = 4;
     for (int z = 0; z < SIZE; z++) {
         for (int y = 0; y < SIZE; y++) {
             for (int x = 0; x < SIZE; x++) {
@@ -128,12 +136,15 @@ void world_init_demo(struct world *w) {
     }
 
     // generate mesh after the data is done
+    void *quads = malloc(C_SIZE3 * sizeof(struct mesh_quad));
     void *mesh_data = NULL;
     for (int i = 0; i < w->chunk_count; i++) {
         struct chunk *c = w->chunks[i];
-        chunk_generate_mesh_data(c, &mesh_data);
-        worldrnd_upload(&w->rnd, c, mesh_data, c->quad_count * sizeof(struct mesh_quad));
+        size_t quad_count = chunk_generate_mesh_data(c, quads);
+        worldrnd_upload(&w->rnd, c, quads, quad_count * sizeof(struct mesh_quad));
     }
+
+    free(quads);
 }
 
 struct chunk *world_get_chunk(struct world *w, int x, int y, int z) {
@@ -162,10 +173,10 @@ void world_draw(struct world *w, struct cam *cam, GLuint program, GLuint atlas, 
 
     for (int i = 0; i < w->chunk_count; i++) {
         struct chunk *c = w->chunks[i];
-        if (!cam_aabb_in_view(cam, c->min, c->max))
-            continue;
-        worldrnd_queue_chunk(&w->rnd, c);
-        dbg_aabb(c->min, c->max, C32_CYAN);
+        if (cam_aabb_in_view(cam, c->min, c->max)) {
+            worldrnd_queue_chunk(&w->rnd, c);
+            dbg_aabb(c->min, c->max, C32_CYAN);
+        }
     }
 
     worldrnd_draw(&w->rnd, cam, program, atlas, atlas_depth);
@@ -202,6 +213,7 @@ bool world_trace(struct world *w, vec3 ro, vec3 rd, float max_distance, struct w
         if (hit->block != BLK_AIR && block_is_solid(hit->block)) {
             hit->pos = pos;
             hit->did_hit = true;
+            hit->distance = sqrtf(dstsqr);
             return true;
         }
 
@@ -232,10 +244,9 @@ bool world_trace(struct world *w, vec3 ro, vec3 rd, float max_distance, struct w
     return false;
 }
 
-float interp_grid_sample2(const float *buf, int x, int y, int z) {
+float interp_samples(const float *buf, int x, int y, int z) {
     assert(buf);
     assert(x >= 0 && x < C_SIZE && y >= 0 && y < C_SIZE && z >= 0 && z < C_SIZE);
-
     int x0 = x / NUM_JUMPS;
     int y0 = y / NUM_JUMPS;
     int z0 = z / NUM_JUMPS;
@@ -275,14 +286,7 @@ float interp_grid_sample2(const float *buf, int x, int y, int z) {
     return u_lerp(v0, v1, sz);
 }
 
-void world_gen_chunk_base(struct world *w, struct chunk *c) {
-
-    float samples[SAMPLE_VOLUME];
-    memset(samples, 0, sizeof(samples));
-
-    fnl_state state = fnlCreateState(0);
-    state.noise_type = FNL_NOISE_OPENSIMPLEX2;
-    float scale = 2.001f;
+static void fill_samples(float *samples, struct chunk *c, fnl_state *state, float scale) {
 
     for (int z = 0; z < AXIS_STEPS; z++) {
         for (int x = 0; x < AXIS_STEPS; x++) {
@@ -291,25 +295,40 @@ void world_gen_chunk_base(struct world *w, struct chunk *c) {
                 int dy = (c->y * C_SIZE + (y * NUM_JUMPS)) * scale;
                 int dz = (c->z * C_SIZE + (z * NUM_JUMPS)) * scale;
                 int index = zxy_index_l(x, y, z, AXIS_STEPS);
-                samples[index] = fnlGetNoise3D(&state, dx, dy, dz);
+                samples[index] = fnlGetNoise3D(state, dx, dy, dz);
             }
         }
     }
+}
+
+void world_gen_chunk_base(struct world *w, struct chunk *c) {
+
+    float samples[SAMPLE_VOLUME];
+    fnl_state state = fnlCreateState(w->seed);
+    state.noise_type = FNL_NOISE_PERLIN;
+    state.octaves = 4;
+
+    float scale = 2.001f;
+    fill_samples(samples, c, &state, scale);
+
+    const int world_height = 40;
+    #define WORLD_DENSITY_THRESHOLD 0.1f
 
     for (int z = 0; z < C_SIZE; z++) {
         for (int x = 0; x < C_SIZE; x++) {
             for (int y = 0; y < C_SIZE; y++) {
-
                 int wx = x + c->x * C_SIZE;
                 int wy = y + c->y * C_SIZE;
                 int wz = z + c->z * C_SIZE;
+                float n = interp_samples(samples, x, y, z);
 
-                // float n = fnlGetNoise3D(&state, wx * scale, wy * scale, wz * scale);
-                float n = interp_grid_sample2(samples, x, y, z);
+                const float squish_factor = 0.02f;
 
+                float density_mod = (world_height - wy) * squish_factor;
                 block_t block = BLK_AIR;
-                if (n > 0)
+                if (n + density_mod > WORLD_DENSITY_THRESHOLD)
                     block = BLK_STONE;
+
                 chunk_set_block(c, x, y, z, block);
             }
         }
