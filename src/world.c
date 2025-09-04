@@ -87,7 +87,7 @@ static void *m_test_worker(void *arg) {
     for (int i = 0; i < w->chunk_count; i++) {
         struct chunk *c = w->chunks[i];
         tmp_fill_chunk_data(c, false);
-        world_gen_chunk_base(w, c);
+        gen_chunk_base(w, c);
     }
 
     // generate mesh after the data is done
@@ -310,15 +310,17 @@ static void fill_samples(float *samples, struct chunk *c, fnl_state *state, floa
     }
 }
 
-void world_gen_chunk_base(struct world *w, struct chunk *c) {
+void gen_chunk_base(struct world *w, struct chunk *c) {
 
     float samples[SAMPLE_VOLUME];
     fnl_state state = fnlCreateState(w->seed);
     state.noise_type = FNL_NOISE_PERLIN;
     state.octaves = 4;
 
-    const int world_height = 140;
+    const int world_height = 80;
     const float scale = 3.001f;
+    const float squish_factor = 0.02f;
+
     fill_samples(samples, c, &state, scale);
 
     for (int z = 0; z < C_SIZE; z++) {
@@ -329,13 +331,11 @@ void world_gen_chunk_base(struct world *w, struct chunk *c) {
                 int wz = z + c->z * C_SIZE;
                 float n = interp_samples(samples, x, y, z);
 
-                const float squish_factor = 0.02f;
 
                 float density_mod = (world_height - wy) * squish_factor;
                 block_t block = BLK_AIR;
                 if (n + density_mod > 0.0f)
                     block = BLK_STONE;
-
                 chunk_set_block(c, x, y, z, block);
             }
         }

@@ -13,6 +13,9 @@ typedef uint64_t u64;
 #define u_wrap(x, l) ((((x) % (l)) + (l)) % (l))
 #define u_idiv(x, d) ((x > 0) ? (x) / (d) : ((x) - (d) + 1) / (d))
 #define u_lerp(a, b, t) ((a) + (t) * ((b) - (a)))
+#define u_min(a, b) ((a) < (b) ? (a) : (b))
+#define u_max(a, b) ((a) > (b) ? (a) : (b))
+#define u_clamp(x, min, max) (u_min(u_max((x), (min)), (max)))
 
 #define KB(x) ((x) * 1024)
 #define MB(x) ((x) * 1024 * 1024)

@@ -2,8 +2,6 @@
 #include <GLFW/glfw3.h>
 #include <string.h>
 
-#define CAM_NEAR_Z 0.1f
-#define CAM_FAR_Z 1000.0f
 
 #define FPS_MOUSE_SENSITIVITY 0.05f
 #define FPS_BOOST_MULTIPLIER 6.0f

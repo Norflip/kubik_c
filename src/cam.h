@@ -3,6 +3,9 @@
 #include "maf.h"
 #include <stdbool.h>
 
+#define CAM_NEAR_Z 0.1f
+#define CAM_FAR_Z 1000.0f
+
 struct cam {
     vec3 pos;
     vec4 rot;

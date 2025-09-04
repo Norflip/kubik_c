@@ -149,14 +149,17 @@ int main() {
             world_trace(&world, ro, rd, 100.0f, &hit);
         }
 
-        vec3 hit_pos = v3_add(v3_cast(hit.pos), (vec3){0.5f, 0.5f, 0.5f});
-        dbg_cube(hit_pos, (vec3){0.54f, 0.54f, 0.54f}, C32_WHITE);
-        dbg_line(hit_pos, v3_add(hit_pos, v3_cast(hit.normal)), C32_YELLOW);
-
         // rendering start
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
         igNewFrame();
+
+        gfx_enable_lines(draw_lines);
+        gfx_start_frame(&camera);
+
+        vec3 hit_pos = v3_add(v3_cast(hit.pos), (vec3){0.5f, 0.5f, 0.5f});
+        dbg_cube(hit_pos, (vec3){0.54f, 0.54f, 0.54f}, C32_WHITE);
+        dbg_line(hit_pos, v3_add(hit_pos, v3_cast(hit.normal)), C32_YELLOW);
 
         glEnable(GL_DEPTH_TEST);
         glEnable(GL_CULL_FACE);
@@ -173,11 +176,6 @@ int main() {
 
         // tmp_world_draw(&world, &camera, chunk_program, chunk_atlas, atlas_depth);
         world_draw(&world, &camera, chunk_program, chunk_atlas, atlas_depth);
-
-        if (draw_lines)
-            gfx_tmp_draw_lines(&camera);
-        else
-            gfx_clear_lines();
 
         igSetNextWindowPos((ImVec2){0, 0}, ImGuiCond_Always, (ImVec2){0, 0});
         igBegin(" ", NULL, 0);
@@ -224,6 +222,7 @@ int main() {
         }
         igEnd();
 
+        gfx_end_frame();
         igRender();
         ImGui_ImplOpenGL3_RenderDrawData(igGetDrawData());
         glfwSwapBuffers(window);

@@ -15,8 +15,10 @@ static GLuint l_program;
 static GLuint l_vbo;
 static struct linevert *l_mapped;
 static size_t l_count, l_cap;
-
 static GLuint empty_vao;
+
+static struct cam *g_active_cam = NULL;
+static bool g_lines_enabled = true;
 
 static inline size_t file_size(FILE *f) {
     fseek(f, 0, SEEK_END);
@@ -82,15 +84,74 @@ void gfx_shutdown(void) {
     glDeleteProgram(l_program);
 }
 
+void gfx_start_frame(const struct cam *c) {
+    g_active_cam = c;
+    dbg_clear();
+}
+
+void gfx_end_frame(void) {
+    if (l_count > 0) {
+        const size_t size = l_count * sizeof(struct linevert) * 2;
+        // glMemoryBarrier(GL_VERTEX_ATTRIB_ARRAY_BARRIER_BIT);
+        glUseProgram(l_program);
+
+        glUniformMatrix4fv(glGetUniformLocation(l_program, "vp"), 1, GL_FALSE, cam_view_proj_ptr(g_active_cam));
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, l_vbo);
+        glFlushMappedNamedBufferRange(l_vbo, 0, size);
+
+        glEnable(GL_DEPTH_TEST);
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        glDepthFunc(GL_LEQUAL);
+
+        glBindVertexArray(empty_vao);
+        glDrawArrays(GL_LINES, 0, l_count * 2);
+        glDisable(GL_BLEND);
+
+        l_count = 0;
+    }
+}
+
+void gfx_enable_lines(bool enable) {
+    g_lines_enabled = enable;
+}
+
+static col32_t adjust_alpha(col32_t color, float distance) {
+    distance = u_min(distance, LINE_FADE_MAX_DISTANCE) / LINE_FADE_MAX_DISTANCE;
+    distance = u_clamp(distance, 0.0f, 1.0f);
+    uint8_t alpha = (uint8_t)(0xFF * (1.0f - distance));
+    return (color & 0xFFFFFF00) | (alpha);
+}
+
 void dbg_line(vec3 start, vec3 end, col32_t color) {
-    if (l_count >= l_cap - 1)
+    if (l_count >= l_cap - 1 || !g_lines_enabled)
         return;
-    l_mapped[l_count * 2 + 0] = (struct linevert){start, color};
-    l_mapped[l_count * 2 + 1] = (struct linevert){end, color};
+
+    if (g_active_cam == NULL) {
+        fprintf(stderr, "dbg_line: no active camera set, call gfx_start_frame() first\n");
+        return;
+    }
+
+    float len0 = v3_len(v3_sub(start, g_active_cam->pos));
+    float len1 = v3_len(v3_sub(end, g_active_cam->pos));
+    if (len0 > LINE_FADE_MAX_DISTANCE && len1 > LINE_FADE_MAX_DISTANCE)
+        return;
+
+    l_mapped[l_count * 2 + 0] = (struct linevert){start, adjust_alpha(color, len0)};
+    l_mapped[l_count * 2 + 1] = (struct linevert){end, adjust_alpha(color, len1)};
     l_count++;
 }
 
 void dbg_aabb(vec3 min, vec3 max, col32_t color) {
+
+    if (l_count >= l_cap - 1 || !g_lines_enabled)
+        return;
+
+    if (g_active_cam == NULL) {
+        fprintf(stderr, "dbg_aabb: no active camera set, call gfx_start_frame() first\n");
+        return;
+    }
+
     static const vec3 BOX_CORNERS[8] = {{0, 0, 0}, {1, 0, 0}, {1, 0, 1}, {0, 0, 1}, {0, 1, 0}, {1, 1, 0}, {1, 1, 1}, {0, 1, 1}};
     vec3 corners[8];
     for (int i = 0; i < 8; i++) {
@@ -112,34 +173,7 @@ void dbg_cube(vec3 pos, vec3 ext, col32_t color) {
     dbg_aabb(min, max, color);
 }
 
-void gfx_tmp_draw_lines(struct cam *c) {
-
-    if (l_count == 0)
-        return;
-
-    const size_t size = l_count * sizeof(struct linevert) * 2;
-
-    // flush the memory that covers the added lines
-    // glMemoryBarrier(GL_VERTEX_ATTRIB_ARRAY_BARRIER_BIT);
-
-    glUseProgram(l_program);
-
-    glUniformMatrix4fv(glGetUniformLocation(l_program, "vp"), 1, GL_FALSE, cam_view_proj_ptr(c));
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, l_vbo);
-    glFlushMappedNamedBufferRange(l_vbo, 0, size);
-
-    glEnable(GL_DEPTH_TEST);
-    glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-    glDepthFunc(GL_LEQUAL);
-
-    glBindVertexArray(empty_vao);
-    glDrawArrays(GL_LINES, 0, l_count * 2);
-    glDisable(GL_BLEND);
-    l_count = 0;
-}
-
-void gfx_clear_lines(void) {
+void dbg_clear(void) {
     l_count = 0;
 }
 
@@ -194,11 +228,11 @@ GLuint gfx_load_atlas(const char *name, const char **paths, int count, int width
     size_t buffer_size = 0;
     FILE *file;
 
-/*
-    GLuint tmptex = 0;
-    glCreateTextures(GL_TEXTURE_2D, 1, &tmptex);
-    glTextureStorage2D(tmptex, 1, GL_RGBA8, w, h);
-*/
+    /*
+        GLuint tmptex = 0;
+        glCreateTextures(GL_TEXTURE_2D, 1, &tmptex);
+        glTextureStorage2D(tmptex, 1, GL_RGBA8, w, h);
+    */
     for (int i = 0; i < count && added < capacity; i++) {
         file = fopen(paths[i], "rb");
         if (!file) {
