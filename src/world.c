@@ -45,6 +45,7 @@ static struct hunk *add_hunk(struct world *w, int x, int z) {
     memset(h, 0, sizeof(struct hunk));
     h->x = x;
     h->z = z;
+    h->chunk_count = 0;
     w->hunks[w->hunk_count++] = h;
     return h;
 }
@@ -86,7 +87,6 @@ static void *m_test_worker(void *arg) {
     // generate data after neighbours
     for (int i = 0; i < w->chunk_count; i++) {
         struct chunk *c = w->chunks[i];
-        tmp_fill_chunk_data(c, false);
         gen_chunk_base(w, c);
     }
 
@@ -106,7 +106,7 @@ static void *m_test_worker(void *arg) {
 void world_init(struct world *w, int seed) {
     memset(w, 0, sizeof(struct world));
 
-    const int SIZE = 8;
+    const int SIZE = 32;
     w->initialized = true;
     w->seed = seed;
 
@@ -149,7 +149,7 @@ void world_generate_initiale(struct world *w) {
             int dy = c->y + FACE_NORMALS[face].y;
             int dz = c->z + FACE_NORMALS[face].z;
             struct chunk *neighbour = world_get_chunk(w, dx, dy, dz);
-            chunk_link(c, neighbour, face);
+            chunk_set_neighbour(c, neighbour, face);
         }
     }
 
@@ -167,6 +167,61 @@ struct chunk *world_get_chunk(struct world *w, int x, int y, int z) {
     return hunk->chunks[index];
 }
 
+static void set_block_internal(struct world *w, struct chunk *c, int lx, int ly, int lz, block_t block) {
+    if (!c)
+        return;
+
+    assert(lx >= 0 && lx < C_SIZE);
+    assert(ly >= 0 && ly < C_SIZE);
+    assert(lz >= 0 && lz < C_SIZE);
+
+    if (!chunk_set_block(c, lx, ly, lz, block)) {
+        //   fprintf(stderr, "set_block_internal: failed to set block in chunk (%d, %d, %d)\n", c->x, c->y, c->z);
+        return;
+    }
+
+    int wx = (c->x * C_SIZE) + lx;
+    int wy = (c->y * C_SIZE) + ly;
+    int wz = (c->z * C_SIZE) + lz;
+    struct hunk *hunk = get_hunk(w, u_idiv(c->x, H_SIZE), u_idiv(c->z, H_SIZE));
+    if (!hunk) {
+        fprintf(stderr, "set_block_internal: hunk for chunk (%d, %d) not found\n", c->x, c->z);
+        return;
+    }
+
+    int hunkx = u_wrap(wx, HW_SIZE);
+    int hunkz = u_wrap(wz, HW_SIZE);
+    int hindex = hunkz * HW_SIZE + hunkx;
+    uint16_t *heightref = &(hunk->height_map[hindex]);
+
+    if (block == BLK_AIR && wy == *heightref) {
+        int old_height = *heightref;
+        // start traversing downwards to find the next non-air block
+        // TODO: could we speed up world_get_block by crawling downwards in the same chunk/hunk?
+        block_t b;
+        while (old_height > 0) {
+            old_height--;
+            b = world_get_block(w, (ivec3){wx, old_height, wz}.x, old_height, (ivec3){wx, old_height, wz}.z);
+            if (b != BLK_AIR) {
+                *heightref = old_height;
+                break;
+            }
+        }
+    } else if (block != BLK_AIR && wy > *heightref) {
+        *heightref = wy;
+    }
+}
+
+void world_set_block(struct world *w, int x, int y, int z, block_t block) {
+    int cx, cy, cz;
+    int lx, ly, lz;
+    relative_pos(x, y, z, C_SIZE, &cx, &cy, &cz, &lx, &ly, &lz);
+    struct chunk *c = world_get_chunk(w, cx, cy, cz);
+    if (!c)
+        return;
+    set_block_internal(w, c, lx, ly, lz, block);
+}
+
 block_t world_get_block(struct world *w, int x, int y, int z) {
     int cx, cy, cz;
     int lx, ly, lz;
@@ -175,6 +230,20 @@ block_t world_get_block(struct world *w, int x, int y, int z) {
     if (!c)
         return BLK_AIR;
     return chunk_get_block(c, lx, ly, lz);
+}
+
+int world_sample_height(struct world *w, int x, int z) {
+    int hx = u_idiv(x, HW_SIZE);
+    int hz = u_idiv(z, HW_SIZE);
+    struct hunk *hunk = get_hunk(w, hx, hz);
+    if (!hunk)
+        return -1;
+
+    int lx = u_wrap(x, HW_SIZE);
+    int lz = u_wrap(z, HW_SIZE);
+    int hindex = lz * HW_SIZE + lx;
+    assert(hindex >= 0 && hindex < HW_SIZE2);
+    return hunk->height_map[hindex];
 }
 
 void world_draw(struct world *w, struct cam *cam, GLuint program, GLuint atlas, int atlas_depth) {
@@ -310,33 +379,116 @@ static void fill_samples(float *samples, struct chunk *c, fnl_state *state, floa
     }
 }
 
+static float simplex2d(int x, int y, float scale, int seed) {
+    fnl_state state = fnlCreateState(seed);
+    state.noise_type = FNL_NOISE_OPENSIMPLEX2;
+    // state.frequency = 1.0f / scale;
+    return fnlGetNoise2D(&state, x / scale, y / scale);
+}
+
+static void gen_chunk_base2(struct world *w, struct chunk *c) {
+
+    fnl_state state = fnlCreateState(w->seed);
+    state.noise_type = FNL_NOISE_OPENSIMPLEX2;
+    state.octaves = 4;
+    state.frequency = 0.008f;
+    state.fractal_type = FNL_FRACTAL_FBM;
+    state.lacunarity = 2.0f;
+    state.gain = 0.38f;
+
+    fnl_state state2 = state;
+    state2.seed += 1;
+    state2.frequency = 0.002f;
+
+    const int world_height = 80;
+    const float noise_height_scale = 8.0f;
+
+    for (int z = 0; z < C_SIZE; z++) {
+        for (int x = 0; x < C_SIZE; x++) {
+
+            int wx = x + c->x * C_SIZE;
+            int wz = z + c->z * C_SIZE;
+            float h = world_height + fnlGetNoise2D(&state, wx, wz) * noise_height_scale;
+            // h += fnlGetNoise2D(&state2, wx, wz) * (noise_height_scale * 0.5f);
+
+            for (int y = 0; y < C_SIZE; y++) {
+                int wy = y + c->y * C_SIZE;
+
+                block_t block = BLK_AIR;
+                if (wy < h) {
+                    block = BLK_STONE;
+                }
+
+                set_block_internal(w, c, x, y, z, block);
+            }
+        }
+    }
+}
+
 void gen_chunk_base(struct world *w, struct chunk *c) {
+
+    gen_chunk_base2(w, c);
+
+    return;
 
     float samples[SAMPLE_VOLUME];
     fnl_state state = fnlCreateState(w->seed);
-    state.noise_type = FNL_NOISE_PERLIN;
-    state.octaves = 4;
+    state.noise_type = FNL_NOISE_OPENSIMPLEX2;
+    state.octaves = 5;
 
     const int world_height = 80;
     const float scale = 3.001f;
-    const float squish_factor = 0.02f;
+    const float squish_factor = 0.15f;
+
+    fnl_state height = fnlCreateState(w->seed + 1);
+    height.noise_type = FNL_NOISE_OPENSIMPLEX2;
+    height.fractal_type = FNL_FRACTAL_FBM;
+
+    float height_noise_scale = 0.5f;
+    float height_world_scale = 8.0f;
 
     fill_samples(samples, c, &state, scale);
 
     for (int z = 0; z < C_SIZE; z++) {
         for (int x = 0; x < C_SIZE; x++) {
+
+            int wx = x + c->x * C_SIZE;
+            int wz = z + c->z * C_SIZE;
+
+            float h = world_height + fnlGetNoise2D(&height, wx * height_noise_scale, wz * height_noise_scale) * 8.0f;
+            h += fnlGetNoise2D(&height, wx * height_noise_scale * 2, wz * height_noise_scale * 0.5f) * 4.0f;
+            h += fnlGetNoise2D(&height, wx * height_noise_scale * 4, wz * height_noise_scale * 0.025f) * 4.0f;
+
+            /*
+                double h = simplex.noise2d(x / 100d, y / 100d) * 8d;
+        h += simplex.noise2d(x / 30d, y / 30d) * 4d;
+        h += simplex.noise2d(x / 15d, y / 15d) * 2d;
+        h += simplex.noise2d(x / 7d, y / 7d);
+        */
+            // float h = simplex2d(wx, wz, 100.0f / 100.0f, w->seed) * 8.0f;
+
             for (int y = 0; y < C_SIZE; y++) {
-                int wx = x + c->x * C_SIZE;
                 int wy = y + c->y * C_SIZE;
-                int wz = z + c->z * C_SIZE;
+
                 float n = interp_samples(samples, x, y, z);
 
-
+#if 0
                 float density_mod = (world_height - wy) * squish_factor;
                 block_t block = BLK_AIR;
                 if (n + density_mod > 0.0f)
                     block = BLK_STONE;
-                chunk_set_block(c, x, y, z, block);
+                set_block_internal(w, c, x, y, z, block);
+#else
+
+                float density_mod = (world_height - wy) * squish_factor;
+
+                block_t block = BLK_AIR;
+                if (wy < h && n + density_mod > 0.0f) {
+                    block = BLK_STONE;
+                }
+
+                set_block_internal(w, c, x, y, z, block);
+#endif
             }
         }
     }

@@ -41,12 +41,10 @@ struct chunk {
 };
 
 void chunk_initialize(struct chunk *c, int x, int y, int z);
-void chunk_set_block(struct chunk *c, int x, int y, int z, block_t value);
+bool chunk_set_block(struct chunk *c, int x, int y, int z, block_t value);
 block_t chunk_get_block(struct chunk *c, int x, int y, int z);
 
-void chunk_link(struct chunk *c, struct chunk *neighbour, int face);
+void chunk_set_neighbour(struct chunk *c, struct chunk *neighbour, int face);
 size_t chunk_generate_mesh_data(struct chunk *c, void* buffer);
-
-void tmp_fill_chunk_data(struct chunk *c, bool fill_padding);
 
 #endif // CHUNK_H

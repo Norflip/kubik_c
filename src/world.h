@@ -9,15 +9,15 @@
 
 #define H_SIZE 16
 #define H_SIZE3 (H_SIZE * H_SIZE * H_SIZE)
-
-struct maps {
-
-};
+#define HW_SIZE (H_SIZE * C_SIZE)
+#define HW_SIZE2 (HW_SIZE * HW_SIZE)
 
 struct hunk {
     int x, z;
     struct chunk *chunks[H_SIZE3];
     int chunk_count;
+    
+    uint16_t height_map[HW_SIZE2];
 };
 
 struct world {
@@ -44,10 +44,13 @@ void world_init(struct world *w, int seed);
 void world_generate_initiale(struct world *w);
 
 struct chunk *world_get_chunk(struct world *w, int x, int y, int z);
+void world_set_block(struct world *w, int x, int y, int z, block_t block);
 block_t world_get_block(struct world *w, int x, int y, int z);
+
+int world_sample_height(struct world *w, int x, int z);
+
 void world_draw(struct world *w, struct cam *cam, GLuint program, GLuint atlas, int atlas_depth);
 bool world_trace(struct world *w, vec3 o, vec3 dir, float max_distance, struct world_hit *hit);
-
 void gen_chunk_base(struct world *w, struct chunk *c);
 
 #endif // WORLD_H

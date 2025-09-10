@@ -76,7 +76,7 @@ static inline struct chunk *find_neighbor(struct chunk *chunk, int dx, int dy, i
     return current;
 }
 
-static void try_set_padded_block(struct chunk *c, int x, int y, int z, block_t value) {
+static void set_padded_block(struct chunk *c, int x, int y, int z, block_t value) {
 
     if (!on_border(x, y, z))
         return;
@@ -102,7 +102,7 @@ static void try_set_padded_block(struct chunk *c, int x, int y, int z, block_t v
             int tx = x;
             int ty = y;
             int tz = z;
-
+            
             // Adjust target coordinate for the specific face, slow?
             switch (face) {
             case DIR_RIGHT:
@@ -125,7 +125,6 @@ static void try_set_padded_block(struct chunk *c, int x, int y, int z, block_t v
                 break; // -Z face
             }
 
-            // set_padded_block(c->neighbours[face], tx, ty, tz, value);
             int idx = zxy_index_l(tx + 1, ty + 1, tz + 1);
             n->blocks[idx] = value;
             n->dirty = true;
@@ -133,11 +132,11 @@ static void try_set_padded_block(struct chunk *c, int x, int y, int z, block_t v
     }
 }
 
-void chunk_set_block(struct chunk *c, int x, int y, int z, block_t value) {
+bool chunk_set_block(struct chunk *c, int x, int y, int z, block_t value) {
     ASSERT_CHUNK(c);
     if (!inside(x, y, z)) {
         fprintf(stderr, "chunk_set_block: position (%d, %d, %d) is out of bounds in chunk (%d, %d, %d)\n", x, y, z, c->x, c->y, c->z);
-        return;
+        return false;
     }
 
     const int index = zxy_index_l(x + 1, y + 1, z + 1);
@@ -150,7 +149,8 @@ void chunk_set_block(struct chunk *c, int x, int y, int z, block_t value) {
 
     c->blocks[index] = value;
     c->dirty = true;
-    try_set_padded_block(c, x, y, z, value);
+    set_padded_block(c, x, y, z, value);
+    return true;
 }
 
 block_t chunk_get_block(struct chunk *c, int x, int y, int z) {
@@ -160,7 +160,7 @@ block_t chunk_get_block(struct chunk *c, int x, int y, int z) {
     return c->blocks[zxy_index_l(x + 1, y + 1, z + 1)];
 }
 
-void chunk_link(struct chunk *c, struct chunk *neighbour, int face) {
+void chunk_set_neighbour(struct chunk *c, struct chunk *neighbour, int face) {
     ASSERT_CHUNK(c);
     assert(face >= 0 && face < 6);
     if (c == neighbour) {
@@ -211,7 +211,7 @@ static void get_face_ao(struct chunk *c, int x, int y, int z, int face, uint8_t 
 #undef ao_value
 }
 
-size_t chunk_generate_mesh_data (struct chunk *c, void *buffer) {
+size_t chunk_generate_mesh_data(struct chunk *c, void *buffer) {
     ASSERT_CHUNK(c);
     if (c->fill_count <= 0 || !c->dirty) {
         return 0;
@@ -256,71 +256,4 @@ size_t chunk_generate_mesh_data (struct chunk *c, void *buffer) {
     c->quad_count = added;
     c->dirty = false;
     return added;
-}
-
-/*
-void chunk_upload_mesh_data(struct chunk *c, void *data) {
-    ASSERT_CHUNK(c);
-    if (data == NULL || c->fill_count == 0)
-        return;
-
-    // Upload the mesh data to the GPU
-    glCreateBuffers(1, &(c->old_quad_buffer));
-    glNamedBufferData(c->old_quad_buffer, c->quad_count * sizeof(struct mesh_quad), data, GL_STATIC_DRAW);
-    free(data);
-}
-*/
-void tmp_fill_chunk_data(struct chunk *c, bool fill_padding) {
-
-    ASSERT_CHUNK(c);
-    // memset(c->blocks, 0, sizeof(c->blocks));
-#if 1
-    for (int z = 0; z < C_SIZE; z++) {
-        for (int x = 0; x < C_SIZE; x++) {
-            int height = 10;
-            if (x > 2 && x < 12 && z > 2 && z < 12)
-                height = 4;
-            if (x > 14 && x < 20 && z > 14 && z < 20)
-                height = C_SIZE;
-            for (int y = 0; y < height; y++) {
-                int index = zxy_index_l(x, y, z);
-
-                block_t block = BLK_STONE;
-                if (y == 0)
-                    block = BLK_BASE;
-
-                if (x > 14 && x < 20 && z > 14 && z < 20)
-                    block = BLK_DIRT;
-
-                if (y == height - 1)
-                    block = BLK_GRASS;
-
-                chunk_set_block(c, x, y, z, block);
-            }
-        }
-    }
-#else
-    for (int z = 0; z < C_SIZE; z++) {
-        for (int x = 0; x < C_SIZE; x++) {
-            for (int y = 0; y < C_SIZE; y++) {
-                int world_y = y + (c->y * C_SIZE);
-                if (world_y < 10)
-                    chunk_set_block(c, x, y, z, BLOCK_STONE);
-            }
-        }
-    }
-#endif
-
-    if (fill_padding) {
-        for (int z = -1; z <= C_SIZE; z++) {
-            for (int y = -1; y <= C_SIZE; y++) {
-                for (int x = -1; x <= C_SIZE; x++) {
-                    if (x == -1 || y == -1 || z == -1 || x == C_SIZE || y == C_SIZE || z == C_SIZE) {
-                        int index = zxy_index_l(x + 1, y + 1, z + 1);
-                        c->blocks[index] = BLK_STONE;
-                    }
-                }
-            }
-        }
-    }
 }

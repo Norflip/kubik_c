@@ -161,6 +161,11 @@ int main() {
         dbg_cube(hit_pos, (vec3){0.54f, 0.54f, 0.54f}, C32_WHITE);
         dbg_line(hit_pos, v3_add(hit_pos, v3_cast(hit.normal)), C32_YELLOW);
 
+        int height = world_sample_height(&world, (int)camera.pos.x, (int)camera.pos.z);
+        dbg_cube((vec3){camera.pos.x, (float)height + 0.5f, camera.pos.z}, (vec3){0.54f, 0.54f, 0.54f}, C32_GREEN);
+        dbg_cube((vec3){(int)camera.pos.x + 0.5f, (float)height + 0.5f, (int)camera.pos.z  + 0.5f}, (vec3){0.6f, 0.6f, 0.6f}, C32_RED);
+
+
         glEnable(GL_DEPTH_TEST);
         glEnable(GL_CULL_FACE);
         glCullFace(GL_BACK);
@@ -187,16 +192,20 @@ int main() {
             igText("debug lines: %s (F3 to toggle)", draw_lines ? "[ON]" : "[OFF]");
 
             igSeparatorText("Player");
-            igText("position: (%d, %d, %d)", (int)camera.pos.x, (int)camera.pos.y, (int)camera.pos.z);
+            igText("pos:   (%d, %d, %d)", (int)camera.pos.x, (int)camera.pos.y, (int)camera.pos.z);
             igText("chunk: (%d, %d, %d)", u_idiv((int)camera.pos.x, C_SIZE), u_idiv((int)camera.pos.y, C_SIZE), u_idiv((int)camera.pos.z, C_SIZE));
-            igText("ro: %.1f, %.1f, %.1f", ro.x, ro.y, ro.z);
-            igText("rd: %.1f, %.1f, %.1f", rd.x, rd.y, rd.z);
-            igText("hit: %d", hit.did_hit);
+            igText("hunk:   (%d, %d)", u_idiv((int)camera.pos.x, HW_SIZE), u_idiv((int)camera.pos.z, HW_SIZE));
+            int height = world_sample_height(&world, (int)camera.pos.x, (int)camera.pos.z);
+            igText("ground height: %d", height);
+
+            igSeparatorText("Raycast");
             if (hit.did_hit) {
                 igText("hit block: %s [%i]", block_name(hit.block), (int)hit.block);
                 igText("hit pos: (%d, %d, %d)", hit.pos.x, hit.pos.y, hit.pos.z);
                 igText("hit normal: (%d, %d, %d)", hit.normal.x, hit.normal.y, hit.normal.z);
                 igText("hit distance: %.1f", hit.distance);
+            } else {
+                igText("No hit");
             }
 
             igSeparatorText("World");
