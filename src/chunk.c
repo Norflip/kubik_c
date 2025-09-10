@@ -30,7 +30,7 @@ static inline int zxy_index_l(int x, int y, int z) {
     assert(c != NULL);  \
     assert(c->_canary == C_CANARY)
 
-void chunk_initialize(struct chunk *c, int x, int y, int z) {
+void chunk_initialize(struct chunk *c, int x, int y, int z, enum chunk_flag flags) {
     memset(c, 0, sizeof(struct chunk));
     c->x = x;
     c->y = y;
@@ -39,6 +39,9 @@ void chunk_initialize(struct chunk *c, int x, int y, int z) {
     c->tint = C32_CLEAR;
     c->min = (vec3){(float)c->x * C_SIZE, (float)c->y * C_SIZE, (float)c->z * C_SIZE};
     c->max = (vec3){(float)(c->x + 1) * C_SIZE, (float)(c->y + 1) * C_SIZE, (float)(c->z + 1) * C_SIZE};
+    c->state = C_STATE_EMPTY;
+    c->flags = flags;
+    mtx_init(&c->lock);
 }
 
 static struct chunk *get_neighbour(struct chunk *c, int face) {
@@ -102,7 +105,7 @@ static void set_padded_block(struct chunk *c, int x, int y, int z, block_t value
             int tx = x;
             int ty = y;
             int tz = z;
-            
+
             // Adjust target coordinate for the specific face, slow?
             switch (face) {
             case DIR_RIGHT:
@@ -256,4 +259,12 @@ size_t chunk_generate_mesh_data(struct chunk *c, void *buffer) {
     c->quad_count = added;
     c->dirty = false;
     return added;
+}
+
+void chunk_lock(struct chunk *c) {
+    mtx_lock(&c->lock);
+}
+
+void chunk_unlock(struct chunk *c) {
+    mtx_unlock(&c->lock);
 }

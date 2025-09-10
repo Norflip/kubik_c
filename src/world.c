@@ -8,6 +8,89 @@
 #define FNL_IMPL
 #include <FastNoiseLite.h>
 
+// work related stuff
+#define WORK_MESH_PRIORITY_BASE 100
+
+struct work {
+    void (*func)(struct chunk *c, struct world *w, struct work *self);
+    struct chunk *chunk;
+    int priority;
+};
+
+static inline void swap_work(struct work *a, struct work *b) {
+    struct work temp = *a;
+    *a = *b;
+    *b = temp;
+}
+
+static void heapify_up(struct world *world, size_t index) {
+    while (index > 0) {
+        size_t parent_idx = (index - 1) / 2;
+        if (world->heap[index].priority >= world->heap[parent_idx].priority)
+            break;
+
+        swap_work(&world->heap[index], &world->heap[parent_idx]);
+        index = parent_idx;
+    }
+}
+
+static void heapify_down(struct world *world, size_t index) {
+    while (true) {
+        size_t smallest = index;
+        size_t left = 2 * index + 1;
+        size_t right = 2 * index + 2;
+
+        if (left < world->heap_count && world->heap[left].priority < world->heap[smallest].priority) {
+            smallest = left;
+        }
+
+        if (right < world->heap_count && world->heap[right].priority < world->heap[smallest].priority) {
+            smallest = right;
+        }
+
+        if (smallest == index) {
+            break;
+        }
+
+        swap_work(&world->heap[index], &world->heap[smallest]);
+        index = smallest;
+    }
+}
+
+static void push_work(struct world *world, struct work work) {
+    mtx_lock(&world->work_lock);
+    if (world->heap_count >= world->heap_cap) {
+        world->heap_cap <<= 1;
+        struct work *new_heap = realloc(world->heap, sizeof(struct work) * world->heap_cap);
+        if (!new_heap) {
+            fprintf(stderr, "Failed to resize work queue\n");
+            mtx_unlock(&world->work_lock);
+            return;
+        }
+        world->heap = new_heap;
+    }
+
+    world->heap[world->heap_count] = work;
+    heapify_up(world, world->heap_count);
+    world->heap_count++;
+    cnd_signal(&world->work_cond);
+    mtx_unlock(&world->work_lock);
+}
+
+static void pop_work(struct world *world, struct work *out) {
+    mtx_lock(&world->work_lock);
+    while (world->heap_count == 0)
+        cnd_wait(&world->work_cond, &world->work_lock);
+
+    *out = world->heap[0];
+    world->heap_count--;
+    if (world->heap_count > 0) {
+        world->heap[0] = world->heap[world->heap_count];
+        heapify_down(world, 0);
+    }
+    mtx_unlock(&world->work_lock);
+}
+
 #define NUM_JUMPS 4
 #define AXIS_STEPS (C_SIZE / NUM_JUMPS + 1)
 #define SAMPLE_VOLUME (AXIS_STEPS * AXIS_STEPS * AXIS_STEPS)
@@ -72,7 +155,7 @@ static struct chunk *add_chunk(struct world *w, int x, int y, int z, struct hunk
     }
 
     struct chunk *c = malloc(sizeof(struct chunk));
-    chunk_initialize(c, x, y, z);
+    chunk_initialize(c, x, y, z, 0);
     w->chunks[w->chunk_count++] = c;
     hunk->chunks[index] = c;
     hunk->chunk_count++;
@@ -81,29 +164,61 @@ static struct chunk *add_chunk(struct world *w, int x, int y, int z, struct hunk
 
 static void *m_test_worker(void *arg) {
     struct world *w = (struct world *)arg;
-    while (!w->initialized)
+    while (!w->initialized) {
+        printf("waiting for world to initialize...\n");
         thrd_sleep(100);
-
-    // generate data after neighbours
-    for (int i = 0; i < w->chunk_count; i++) {
-        struct chunk *c = w->chunks[i];
-        gen_chunk_base(w, c);
     }
 
-    // generate mesh after the data is done
-    void *quads = malloc(C_SIZE3 * sizeof(struct mesh_quad));
-    void *mesh_data = NULL;
-    for (int i = 0; i < w->chunk_count; i++) {
-        struct chunk *c = w->chunks[i];
-        size_t quad_count = chunk_generate_mesh_data(c, quads);
-        worldrnd_upload(&w->rnd, c, quads, quad_count * sizeof(struct mesh_quad));
+    struct work work;
+    while (true) {
+        pop_work(w, &work);
+        if (work.func)
+            work.func(work.chunk, w, &work);
     }
 
-    free(quads);
     return NULL;
 }
 
-void world_init(struct world *w, int seed) {
+static void gen_chunk_mesh_fn(struct chunk *c, struct world *w, struct work *self) {
+    assert(c != NULL);
+
+    // check the neighbours
+    for (int face = 0; face < 6; face++) {
+        struct chunk *n = c->neighbours[face];
+        if (n && n->state < C_STATE_GENERATED) {
+            // printf("deferring meshing of chunk (%d, %d, %d) because neighbour (%d, %d, %d) is not ready\n", c->x, c->y, c->z, n->x, n->y, n->z);
+            //  requeue this work item
+            self->priority++;
+            push_work(w, *self);
+            return;
+        }
+    }
+
+    c->state = C_STATE_MESHING;
+    void *quads = malloc(C_SIZE3 * sizeof(struct mesh_quad));
+    size_t quad_count = chunk_generate_mesh_data(c, quads);
+    worldrnd_upload(&w->rnd, c, quads, quad_count * sizeof(struct mesh_quad));
+    c->state = C_STATE_MESHED;
+    free(quads);
+}
+
+static void gen_chunk_data_fn(struct chunk *c, struct world *w, struct work *self) {
+    assert(c != NULL);
+    // chunk_lock(c);
+    c->state = C_STATE_GENERATING;
+    gen_chunk_base(w, c);
+    c->state = C_STATE_GENERATED;
+    if (c->fill_count <= 0)
+        return;
+
+    if (c->flags & CHUNK_FLAG_ONLY_DATA)
+        return;
+
+    // chunk_unlock(c);
+    push_work(w, (struct work){.chunk = c, .func = gen_chunk_mesh_fn, .priority = WORK_MESH_PRIORITY_BASE});
+}
+
+void world_init(struct world *w, int seed, int num_worker_threads) {
     memset(w, 0, sizeof(struct world));
 
     const int SIZE = 32;
@@ -115,18 +230,36 @@ void world_init(struct world *w, int seed) {
     w->chunks = malloc(sizeof(struct chunk) * w->chunk_cap);
 
     w->hunk_count = 0;
-    w->hunk_cap = 9;
+    w->hunk_cap = 8;
     w->hunks = malloc(sizeof(struct hunk *) * w->hunk_cap);
 
     worldrnd_init(&w->rnd, H_SIZE3);
+
+    // work queue
+    w->heap_cap = 512;
+    w->heap = malloc(sizeof(struct work) * w->heap_cap);
+    w->heap_count = 0;
+    mtx_init(&w->work_lock);
+    cnd_init(&w->work_cond);
+
+    printf("World initialized with seed %d\n", seed);
+    // thrd_init(&w->test_worker_thrd, m_test_worker, w);
+
+    w->num_worker_threads = num_worker_threads;
+    thrd_t thread;
+    for (int i = 0; i < w->num_worker_threads; i++) {
+        thrd_init(&thread, m_test_worker, w);
+        thrd_detach(thread);
+    }
 }
 
-void world_generate_initiale(struct world *w) {
+void world_generate_initiale(struct world *w, int size) {
     assert(w->initialized);
-    const int SIZE = 8;
-    for (int z = 0; z < SIZE; z++) {
-        for (int y = 0; y < SIZE; y++) {
-            for (int x = 0; x < SIZE; x++) {
+    const int height = (size > H_SIZE) ? H_SIZE : size;
+
+    for (int z = 0; z < size; z++) {
+        for (int x = 0; x < size; x++) {
+            for (int y = 0; y < height; y++) {
                 int hx, _hy, hz;
                 int lx, ly, lz;
                 relative_pos(x, y, z, H_SIZE, &hx, &_hy, &hz, &lx, &ly, &lz);
@@ -153,7 +286,10 @@ void world_generate_initiale(struct world *w) {
         }
     }
 
-    thrd_init(&w->test_worker_thrd, m_test_worker, w);
+    for (int i = 0; i < w->chunk_count; i++) {
+        struct chunk *c = w->chunks[i];
+        push_work(w, (struct work){.chunk = c, .func = gen_chunk_data_fn, .priority = 0});
+    }
 }
 
 struct chunk *world_get_chunk(struct world *w, int x, int y, int z) {
@@ -365,7 +501,6 @@ float interp_samples(const float *buf, int x, int y, int z) {
 }
 
 static void fill_samples(float *samples, struct chunk *c, fnl_state *state, float scale) {
-
     for (int z = 0; z < AXIS_STEPS; z++) {
         for (int x = 0; x < AXIS_STEPS; x++) {
             for (int y = 0; y < AXIS_STEPS; y++) {
@@ -379,14 +514,7 @@ static void fill_samples(float *samples, struct chunk *c, fnl_state *state, floa
     }
 }
 
-static float simplex2d(int x, int y, float scale, int seed) {
-    fnl_state state = fnlCreateState(seed);
-    state.noise_type = FNL_NOISE_OPENSIMPLEX2;
-    // state.frequency = 1.0f / scale;
-    return fnlGetNoise2D(&state, x / scale, y / scale);
-}
-
-static void gen_chunk_base2(struct world *w, struct chunk *c) {
+void gen_chunk_base(struct world *w, struct chunk *c) {
 
     fnl_state state = fnlCreateState(w->seed);
     state.noise_type = FNL_NOISE_OPENSIMPLEX2;
@@ -420,75 +548,6 @@ static void gen_chunk_base2(struct world *w, struct chunk *c) {
                 }
 
                 set_block_internal(w, c, x, y, z, block);
-            }
-        }
-    }
-}
-
-void gen_chunk_base(struct world *w, struct chunk *c) {
-
-    gen_chunk_base2(w, c);
-
-    return;
-
-    float samples[SAMPLE_VOLUME];
-    fnl_state state = fnlCreateState(w->seed);
-    state.noise_type = FNL_NOISE_OPENSIMPLEX2;
-    state.octaves = 5;
-
-    const int world_height = 80;
-    const float scale = 3.001f;
-    const float squish_factor = 0.15f;
-
-    fnl_state height = fnlCreateState(w->seed + 1);
-    height.noise_type = FNL_NOISE_OPENSIMPLEX2;
-    height.fractal_type = FNL_FRACTAL_FBM;
-
-    float height_noise_scale = 0.5f;
-    float height_world_scale = 8.0f;
-
-    fill_samples(samples, c, &state, scale);
-
-    for (int z = 0; z < C_SIZE; z++) {
-        for (int x = 0; x < C_SIZE; x++) {
-
-            int wx = x + c->x * C_SIZE;
-            int wz = z + c->z * C_SIZE;
-
-            float h = world_height + fnlGetNoise2D(&height, wx * height_noise_scale, wz * height_noise_scale) * 8.0f;
-            h += fnlGetNoise2D(&height, wx * height_noise_scale * 2, wz * height_noise_scale * 0.5f) * 4.0f;
-            h += fnlGetNoise2D(&height, wx * height_noise_scale * 4, wz * height_noise_scale * 0.025f) * 4.0f;
-
-            /*
-                double h = simplex.noise2d(x / 100d, y / 100d) * 8d;
-        h += simplex.noise2d(x / 30d, y / 30d) * 4d;
-        h += simplex.noise2d(x / 15d, y / 15d) * 2d;
-        h += simplex.noise2d(x / 7d, y / 7d);
-        */
-            // float h = simplex2d(wx, wz, 100.0f / 100.0f, w->seed) * 8.0f;
-
-            for (int y = 0; y < C_SIZE; y++) {
-                int wy = y + c->y * C_SIZE;
-
-                float n = interp_samples(samples, x, y, z);
-
-#if 0
-                float density_mod = (world_height - wy) * squish_factor;
-                block_t block = BLK_AIR;
-                if (n + density_mod > 0.0f)
-                    block = BLK_STONE;
-                set_block_internal(w, c, x, y, z, block);
-#else
-
-                float density_mod = (world_height - wy) * squish_factor;
-
-                block_t block = BLK_AIR;
-                if (wy < h && n + density_mod > 0.0f) {
-                    block = BLK_STONE;
-                }
-
-                set_block_internal(w, c, x, y, z, block);
-#endif
             }
         }
     }

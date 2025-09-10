@@ -3,9 +3,9 @@
 #include "cam.h"
 #include "chunk.h"
 #include "maf.h"
+#include "platf.h"
 #include "render.h"
 #include "utils.h"
-#include "platf.h"
 
 #define H_SIZE 16
 #define H_SIZE3 (H_SIZE * H_SIZE * H_SIZE)
@@ -16,21 +16,27 @@ struct hunk {
     int x, z;
     struct chunk *chunks[H_SIZE3];
     int chunk_count;
-    
     uint16_t height_map[HW_SIZE2];
 };
+
+struct work;
 
 struct world {
     bool initialized;
     int seed;
+    int num_worker_threads;
 
     struct chunk **chunks;
     int chunk_count, chunk_cap;
 
     struct hunk **hunks;
     int hunk_count, hunk_cap;
-    thrd_t test_worker_thrd;
     struct worldrnd rnd;
+
+    struct work *heap;
+    size_t heap_count, heap_cap;
+    mtx_t work_lock;
+    cnd_t work_cond;
 };
 
 struct world_hit {
@@ -40,8 +46,8 @@ struct world_hit {
     bool did_hit;
 };
 
-void world_init(struct world *w, int seed);
-void world_generate_initiale(struct world *w);
+void world_init(struct world *w, int seed, int num_worker_threads);
+void world_generate_initiale(struct world *w, int size);
 
 struct chunk *world_get_chunk(struct world *w, int x, int y, int z);
 void world_set_block(struct world *w, int x, int y, int z, block_t block);

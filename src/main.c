@@ -113,8 +113,13 @@ int main() {
     cam_initialize(&camera, window_width, window_height, to_rad(45.0f));
 
     struct world world;
-    world_init(&world, 0);
-    world_generate_initiale(&world);
+    world_init(&world, 0, 4);
+
+    // start time
+    bool track_gen_time = true;
+    double gen_start_time = glfwGetTime();
+    double final_time = -1.0;
+    world_generate_initiale(&world, 8);
 
     GLuint chunk_program = gfx_load_program("chunk", asset_path("chunk.vs"), asset_path("chunk.fs"));
 
@@ -149,6 +154,11 @@ int main() {
             world_trace(&world, ro, rd, 100.0f, &hit);
         }
 
+        if (track_gen_time && world.heap_count == 0) {
+            final_time = glfwGetTime() - gen_start_time;
+            track_gen_time = false;
+        }
+
         // rendering start
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
@@ -163,8 +173,7 @@ int main() {
 
         int height = world_sample_height(&world, (int)camera.pos.x, (int)camera.pos.z);
         dbg_cube((vec3){camera.pos.x, (float)height + 0.5f, camera.pos.z}, (vec3){0.54f, 0.54f, 0.54f}, C32_GREEN);
-        dbg_cube((vec3){(int)camera.pos.x + 0.5f, (float)height + 0.5f, (int)camera.pos.z  + 0.5f}, (vec3){0.6f, 0.6f, 0.6f}, C32_RED);
-
+        dbg_cube((vec3){(int)camera.pos.x + 0.5f, (float)height + 0.5f, (int)camera.pos.z + 0.5f}, (vec3){0.6f, 0.6f, 0.6f}, C32_RED);
 
         glEnable(GL_DEPTH_TEST);
         glEnable(GL_CULL_FACE);
@@ -210,6 +219,16 @@ int main() {
 
             igSeparatorText("World");
             igText("Seed: %d", world.seed);
+            igText("Work queue: %d", world.heap_count);
+            igText("Workers: %d", world.num_worker_threads);
+            igText("Gentime: %s", track_gen_time ? "generating..." : "done");
+            if (track_gen_time) {
+                double current_time = glfwGetTime() - gen_start_time;
+                igText("Gen time: %.2f seconds", current_time);
+            } else {
+                igText("Gen time: %.2f seconds", final_time);
+            }
+
             igText("Chunk Count: %d", world.chunk_count);
             igText("Hunk Count: %d", world.hunk_count);
             igText("Draw Calls: %d", world.rnd.draw_count);
