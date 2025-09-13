@@ -13,8 +13,15 @@
 
 struct work {
     void (*func)(struct chunk *c, struct world *w, struct work *self);
-    struct chunk *chunk;
     int priority;
+    bool is_column;
+    union {
+        struct {
+            int x, z;
+            int min_y, max_y;
+        } column;
+        struct chunk *chunk;
+    };
 };
 
 static inline void swap_work(struct work *a, struct work *b) {
@@ -26,10 +33,10 @@ static inline void swap_work(struct work *a, struct work *b) {
 static void heapify_up(struct world *world, size_t index) {
     while (index > 0) {
         size_t parent_idx = (index - 1) / 2;
-        if (world->heap[index].priority >= world->heap[parent_idx].priority)
+        if (world->work_heap[index].priority >= world->work_heap[parent_idx].priority)
             break;
 
-        swap_work(&world->heap[index], &world->heap[parent_idx]);
+        swap_work(&world->work_heap[index], &world->work_heap[parent_idx]);
         index = parent_idx;
     }
 }
@@ -40,52 +47,49 @@ static void heapify_down(struct world *world, size_t index) {
         size_t left = 2 * index + 1;
         size_t right = 2 * index + 2;
 
-        if (left < world->heap_count && world->heap[left].priority < world->heap[smallest].priority) {
+        if (left < world->work_heap_count && world->work_heap[left].priority < world->work_heap[smallest].priority)
             smallest = left;
-        }
 
-        if (right < world->heap_count && world->heap[right].priority < world->heap[smallest].priority) {
+        if (right < world->work_heap_count && world->work_heap[right].priority < world->work_heap[smallest].priority)
             smallest = right;
-        }
 
-        if (smallest == index) {
+        if (smallest == index)
             break;
-        }
 
-        swap_work(&world->heap[index], &world->heap[smallest]);
+        swap_work(&world->work_heap[index], &world->work_heap[smallest]);
         index = smallest;
     }
 }
 
 static void push_work(struct world *world, struct work work) {
     mtx_lock(&world->work_lock);
-    if (world->heap_count >= world->heap_cap) {
-        world->heap_cap <<= 1;
-        struct work *new_heap = realloc(world->heap, sizeof(struct work) * world->heap_cap);
+    if (world->work_heap_count >= world->work_heap_cap) {
+        world->work_heap_cap <<= 1;
+        struct work *new_heap = realloc(world->work_heap, sizeof(struct work) * world->work_heap_cap);
         if (!new_heap) {
             fprintf(stderr, "Failed to resize work queue\n");
             mtx_unlock(&world->work_lock);
             return;
         }
-        world->heap = new_heap;
+        world->work_heap = new_heap;
     }
 
-    world->heap[world->heap_count] = work;
-    heapify_up(world, world->heap_count);
-    world->heap_count++;
+    world->work_heap[world->work_heap_count] = work;
+    heapify_up(world, world->work_heap_count);
+    world->work_heap_count++;
     cnd_signal(&world->work_cond);
     mtx_unlock(&world->work_lock);
 }
 
 static void pop_work(struct world *world, struct work *out) {
     mtx_lock(&world->work_lock);
-    while (world->heap_count == 0)
+    while (world->work_heap_count == 0)
         cnd_wait(&world->work_cond, &world->work_lock);
 
-    *out = world->heap[0];
-    world->heap_count--;
-    if (world->heap_count > 0) {
-        world->heap[0] = world->heap[world->heap_count];
+    *out = world->work_heap[0];
+    world->work_heap_count--;
+    if (world->work_heap_count > 0) {
+        world->work_heap[0] = world->work_heap[world->work_heap_count];
         heapify_down(world, 0);
     }
     mtx_unlock(&world->work_lock);
@@ -94,7 +98,10 @@ static void pop_work(struct world *world, struct work *out) {
 #define NUM_JUMPS 4
 #define AXIS_STEPS (C_SIZE / NUM_JUMPS + 1)
 #define SAMPLE_VOLUME (AXIS_STEPS * AXIS_STEPS * AXIS_STEPS)
-#define SAMPLE_VOLUME_SIZE (AXIS_STEPS * AXIS_STEPS * AXIS_STEPS * sizeof(float))
+
+static void gen_chunk_base(struct world *w, struct chunk *c);
+static void gen_chunk_surface(struct world *w, struct chunk *c);
+static void gen_chunk_caves(struct world *w, struct chunk *c);
 
 static inline int zxy_index_l(int x, int y, int z, int l) {
     return z + (x * l) + (y * l * l);
@@ -119,7 +126,7 @@ static struct hunk *get_hunk(struct world *w, int x, int z) {
     return NULL;
 }
 
-static struct hunk *add_hunk(struct world *w, int x, int z) {
+static struct hunk *alloc_hunk(struct world *w, int x, int z) {
     struct hunk *h = get_hunk(w, x, z);
     if (h != NULL)
         return h;
@@ -133,7 +140,7 @@ static struct hunk *add_hunk(struct world *w, int x, int z) {
     return h;
 }
 
-static struct chunk *add_chunk(struct world *w, int x, int y, int z, struct hunk *hunk, int index) {
+static struct chunk *alloc_chunk(struct world *w, int x, int y, int z, struct hunk *hunk, int index) {
     if (w->chunk_count >= w->chunk_cap)
         return NULL;
 
@@ -155,7 +162,7 @@ static struct chunk *add_chunk(struct world *w, int x, int y, int z, struct hunk
     }
 
     struct chunk *c = malloc(sizeof(struct chunk));
-    chunk_initialize(c, x, y, z, 0);
+    chunk_initialize(c, (chunk_pos_t){x, y, z}, 0);
     w->chunks[w->chunk_count++] = c;
     hunk->chunks[index] = c;
     hunk->chunk_count++;
@@ -203,19 +210,27 @@ static void gen_chunk_mesh_fn(struct chunk *c, struct world *w, struct work *sel
 }
 
 static void gen_chunk_data_fn(struct chunk *c, struct world *w, struct work *self) {
-    assert(c != NULL);
-    // chunk_lock(c);
-    c->state = C_STATE_GENERATING;
-    gen_chunk_base(w, c);
-    c->state = C_STATE_GENERATED;
-    if (c->fill_count <= 0)
-        return;
+    assert(self->is_column);
 
-    if (c->flags & CHUNK_FLAG_ONLY_DATA)
-        return;
+    struct chunk *top_chunk = world_get_chunk(w, self->column.x, self->column.max_y, self->column.z);
+    struct chunk *chunk = top_chunk;
 
-    // chunk_unlock(c);
-    push_work(w, (struct work){.chunk = c, .func = gen_chunk_mesh_fn, .priority = WORK_MESH_PRIORITY_BASE});
+    for (int y = self->column.max_y; y >= self->column.min_y && chunk; y--) {
+        gen_chunk_base(w, chunk);
+        chunk = chunk->neighbours[DIR_DOWN];
+    }
+
+    chunk = top_chunk;
+    for (int y = self->column.max_y; y >= self->column.min_y && chunk; y--) {
+        gen_chunk_surface(w, chunk);
+        gen_chunk_caves(w, chunk);
+
+        chunk->state = C_STATE_GENERATED;
+        if (chunk->fill_count > 0 && (chunk->flags & CHUNK_FLAG_ONLY_DATA) == 0) {
+            push_work(w, (struct work){.chunk = chunk, .is_column = false, .func = gen_chunk_mesh_fn, .priority = WORK_MESH_PRIORITY_BASE});
+        }
+        chunk = chunk->neighbours[DIR_DOWN];
+    }
 }
 
 void world_init(struct world *w, int seed, int num_worker_threads) {
@@ -236,9 +251,9 @@ void world_init(struct world *w, int seed, int num_worker_threads) {
     worldrnd_init(&w->rnd, H_SIZE3);
 
     // work queue
-    w->heap_cap = 512;
-    w->heap = malloc(sizeof(struct work) * w->heap_cap);
-    w->heap_count = 0;
+    w->work_heap_cap = 512;
+    w->work_heap = malloc(sizeof(struct work) * w->work_heap_cap);
+    w->work_heap_count = 0;
     mtx_init(&w->work_lock);
     cnd_init(&w->work_cond);
 
@@ -255,6 +270,9 @@ void world_init(struct world *w, int seed, int num_worker_threads) {
 
 void world_generate_initiale(struct world *w, int size) {
     assert(w->initialized);
+
+    if (size > 32)
+        size = 32;
     const int height = (size > H_SIZE) ? H_SIZE : size;
 
     for (int z = 0; z < size; z++) {
@@ -265,30 +283,54 @@ void world_generate_initiale(struct world *w, int size) {
                 relative_pos(x, y, z, H_SIZE, &hx, &_hy, &hz, &lx, &ly, &lz);
 
                 int index = zxy_index_l(lx, ly, lz, H_SIZE);
-                struct hunk *h = add_hunk(w, hx, hz);
-                add_chunk(w, x, y, z, h, index);
+                struct hunk *h = alloc_hunk(w, hx, hz);
+                alloc_chunk(w, x, y, z, h, index);
             }
         }
     }
 
-    printf("World initialized with %d chunks\n", w->chunk_count);
-    printf("Sampling %i instead of %i [%i jumps]\n", AXIS_STEPS * AXIS_STEPS * AXIS_STEPS, C_SIZE * C_SIZE * C_SIZE, NUM_JUMPS);
+    printf("generating %d chunks\n", w->chunk_count);
 
     // collect the neighbours
     for (int i = 0; i < w->chunk_count; i++) {
         struct chunk *c = w->chunks[i];
         for (int face = 0; face < 6; face++) {
-            int dx = c->x + FACE_NORMALS[face].x;
-            int dy = c->y + FACE_NORMALS[face].y;
-            int dz = c->z + FACE_NORMALS[face].z;
+            int dx = c->pos.x + FACE_NORMALS[face].x;
+            int dy = c->pos.y + FACE_NORMALS[face].y;
+            int dz = c->pos.z + FACE_NORMALS[face].z;
             struct chunk *neighbour = world_get_chunk(w, dx, dy, dz);
             chunk_set_neighbour(c, neighbour, face);
         }
     }
 
-    for (int i = 0; i < w->chunk_count; i++) {
-        struct chunk *c = w->chunks[i];
-        push_work(w, (struct work){.chunk = c, .func = gen_chunk_data_fn, .priority = 0});
+    for (int z = 0; z < size; z++) {
+        for (int x = 0; x < size; x++) {
+
+            struct work work;
+            work.is_column = true;
+            work.column.x = x;
+            work.column.z = z;
+            work.column.min_y = 0;
+            work.column.max_y = height - 1;
+            work.func = gen_chunk_data_fn;
+            work.priority = 0;
+            push_work(w, work);
+
+            /*
+                        for (int y = height - 1; y >= 0; y--) {
+                            struct chunk *c = world_get_chunk(w, x, y, z);
+                            if (!c) {
+                                fprintf(stderr, "world_generate_initiale: chunk (%d, %d, %d) not found\n", x, y, z);
+                                continue;
+                            }
+
+                            if (c->state == C_STATE_EMPTY) {
+                                c->state = C_STATE_GENERATING;
+                                push_work(w, (struct work){.chunk = c, .func = gen_chunk_data_fn, .priority = 0});
+                            }
+                        }
+            */
+        }
     }
 }
 
@@ -312,16 +354,15 @@ static void set_block_internal(struct world *w, struct chunk *c, int lx, int ly,
     assert(lz >= 0 && lz < C_SIZE);
 
     if (!chunk_set_block(c, lx, ly, lz, block)) {
-        //   fprintf(stderr, "set_block_internal: failed to set block in chunk (%d, %d, %d)\n", c->x, c->y, c->z);
         return;
     }
 
-    int wx = (c->x * C_SIZE) + lx;
-    int wy = (c->y * C_SIZE) + ly;
-    int wz = (c->z * C_SIZE) + lz;
-    struct hunk *hunk = get_hunk(w, u_idiv(c->x, H_SIZE), u_idiv(c->z, H_SIZE));
+    int wx = (c->pos.x * C_SIZE) + lx;
+    int wy = (c->pos.y * C_SIZE) + ly;
+    int wz = (c->pos.z * C_SIZE) + lz;
+    struct hunk *hunk = get_hunk(w, u_idiv(c->pos.x, H_SIZE), u_idiv(c->pos.z, H_SIZE));
     if (!hunk) {
-        fprintf(stderr, "set_block_internal: hunk for chunk (%d, %d) not found\n", c->x, c->z);
+        fprintf(stderr, "set_block_internal: hunk for chunk (%d, %d) not found\n", c->pos.x, c->pos.z);
         return;
     }
 
@@ -504,9 +545,9 @@ static void fill_samples(float *samples, struct chunk *c, fnl_state *state, floa
     for (int z = 0; z < AXIS_STEPS; z++) {
         for (int x = 0; x < AXIS_STEPS; x++) {
             for (int y = 0; y < AXIS_STEPS; y++) {
-                int dx = (c->x * C_SIZE + (x * NUM_JUMPS)) * scale;
-                int dy = (c->y * C_SIZE + (y * NUM_JUMPS)) * scale;
-                int dz = (c->z * C_SIZE + (z * NUM_JUMPS)) * scale;
+                int dx = (c->pos.x * C_SIZE + (x * NUM_JUMPS)) * scale;
+                int dy = (c->pos.y * C_SIZE + (y * NUM_JUMPS)) * scale;
+                int dz = (c->pos.z * C_SIZE + (z * NUM_JUMPS)) * scale;
                 int index = zxy_index_l(x, y, z, AXIS_STEPS);
                 samples[index] = fnlGetNoise3D(state, dx, dy, dz);
             }
@@ -529,26 +570,136 @@ void gen_chunk_base(struct world *w, struct chunk *c) {
     state2.frequency = 0.002f;
 
     const int world_height = 80;
-    const float noise_height_scale = 8.0f;
+    const float noise_height_scale = 24.0f;
 
     for (int z = 0; z < C_SIZE; z++) {
         for (int x = 0; x < C_SIZE; x++) {
 
-            int wx = x + c->x * C_SIZE;
-            int wz = z + c->z * C_SIZE;
+            int wx = x + c->pos.x * C_SIZE;
+            int wz = z + c->pos.z * C_SIZE;
             float h = world_height + fnlGetNoise2D(&state, wx, wz) * noise_height_scale;
             // h += fnlGetNoise2D(&state2, wx, wz) * (noise_height_scale * 0.5f);
 
             for (int y = 0; y < C_SIZE; y++) {
-                int wy = y + c->y * C_SIZE;
+                int wy = y + c->pos.y * C_SIZE;
 
                 block_t block = BLK_AIR;
                 if (wy < h) {
                     block = BLK_STONE;
                 }
 
+                if (wy == 0 || wy < rand() % 5) {
+                    block = BLK_BASE;
+                }
+
                 set_block_internal(w, c, x, y, z, block);
             }
         }
     }
+}
+
+typedef struct {
+    int x, y, z;
+    struct chunk *c;
+} pos_t;
+
+void move_up(pos_t *it) {
+    it->y++;
+    if (it->y >= C_SIZE) {
+        it->y = 0;
+        it->c = it->c->neighbours[DIR_UP];
+    }
+}
+
+void move_down(pos_t *it) {
+    it->y--;
+    if (it->y < 0) {
+        it->y = C_SIZE - 1;
+        it->c = it->c->neighbours[DIR_DOWN];
+    }
+}
+
+bool check_air_above(pos_t *it, int n) {
+    for (int i = 0; i < n; i++) {
+        // we can just assume that if the chunk is null then it's air
+        if (it->c == NULL)
+            return true;
+
+        block_t b = chunk_get_block(it->c, it->x, it->y, it->z);
+        if (b != BLK_AIR) {
+            return false;
+        }
+        move_up(it);
+    }
+
+    return true;
+}
+
+static void gen_chunk_surface(struct world *w, struct chunk *c) {
+
+    const int required_air_above = 8;
+    const int min_dirt_depth = 2;
+    const int max_dirt_depth = 5;
+
+    fnl_state dirt_state = fnlCreateState(w->seed + 10);
+    dirt_state.noise_type = FNL_NOISE_PERLIN;
+    dirt_state.frequency = 0.15f;
+
+    // check 8 blocks above and see if they are air, if so, replace with grass and dirt
+    for (int z = 0; z < C_SIZE; z++) {
+        for (int x = 0; x < C_SIZE; x++) {
+
+            int steps_down = 0;
+            for (int y = C_SIZE - 1; y >= 0; y--) {
+                block_t block = chunk_get_block(c, x, y, z);
+                if (block == BLK_AIR) {
+                    steps_down++;
+                    continue;
+                }
+
+                // would be the first stone in the column
+                // check if we have 8 blocks of air above
+                // if so it's a surface block and we can replace it with grass and move down with some dirt
+                if (block == BLK_STONE) {
+                    pos_t pos_a = {.x = x, .y = y, .z = z, .c = c};
+
+                    if (steps_down < required_air_above) {
+                        // we already know there is enough air above
+                        move_up(&pos_a);
+                        if (!check_air_above(&pos_a, required_air_above))
+                            break;
+                    }
+
+                    set_block_internal(w, c, x, y, z, BLK_GRASS);
+
+                    float dirt_t = fnlGetNoise2D(&dirt_state, (c->pos.x * C_SIZE + x) * 0.5f, (c->pos.z * C_SIZE + z) * 0.5f);
+                    dirt_t = (dirt_t + 1.0f) * 0.5f;
+                    dirt_t = u_clamp(dirt_t, 0.0f, 1.0f);
+                    int dirt_depth = min_dirt_depth + (int)((max_dirt_depth - min_dirt_depth) * dirt_t);
+
+                    pos_t pos_b = {.x = x, .y = y, .z = z, .c = c};
+                    move_down(&pos_b);
+
+                    for (int d = 0; d < dirt_depth; d++) {
+                        if (pos_a.c == NULL)
+                            break;
+
+                        block_t b = chunk_get_block(pos_b.c, pos_b.x, pos_b.y, pos_b.z);
+                        if (b == BLK_STONE)
+                            set_block_internal(w, pos_b.c, pos_b.x, pos_b.y, pos_b.z, BLK_DIRT);
+                        else
+                            break;
+                        move_down(&pos_b);
+                    }
+
+                    break;
+                }
+            }
+        }
+    }
+}
+
+static void gen_chunk_caves(struct world *w, struct chunk *c) {
+    (void)w;
+    (void)c;
 }

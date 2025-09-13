@@ -30,15 +30,15 @@ static inline int zxy_index_l(int x, int y, int z) {
     assert(c != NULL);  \
     assert(c->_canary == C_CANARY)
 
-void chunk_initialize(struct chunk *c, int x, int y, int z, enum chunk_flag flags) {
+void chunk_initialize(struct chunk *c, chunk_pos_t pos, enum chunk_flag flags) {
     memset(c, 0, sizeof(struct chunk));
-    c->x = x;
-    c->y = y;
-    c->z = z;
+    c->pos = pos;
     c->_canary = C_CANARY;
     c->tint = C32_CLEAR;
-    c->min = (vec3){(float)c->x * C_SIZE, (float)c->y * C_SIZE, (float)c->z * C_SIZE};
-    c->max = (vec3){(float)(c->x + 1) * C_SIZE, (float)(c->y + 1) * C_SIZE, (float)(c->z + 1) * C_SIZE};
+
+    c->min = (vec3){c->pos.x * C_SIZE, c->pos.y * C_SIZE, c->pos.z * C_SIZE};
+    c->max = v3_addf(c->min, C_SIZE);
+
     c->state = C_STATE_EMPTY;
     c->flags = flags;
     mtx_init(&c->lock);
@@ -138,7 +138,7 @@ static void set_padded_block(struct chunk *c, int x, int y, int z, block_t value
 bool chunk_set_block(struct chunk *c, int x, int y, int z, block_t value) {
     ASSERT_CHUNK(c);
     if (!inside(x, y, z)) {
-        fprintf(stderr, "chunk_set_block: position (%d, %d, %d) is out of bounds in chunk (%d, %d, %d)\n", x, y, z, c->x, c->y, c->z);
+        fprintf(stderr, "chunk_set_block: position (%d, %d, %d) is out of bounds in chunk (%d, %d, %d)\n", x, y, z, c->pos.x, c->pos.y, c->pos.z);
         return false;
     }
 
@@ -161,6 +161,11 @@ block_t chunk_get_block(struct chunk *c, int x, int y, int z) {
     if (!inside_padded(x, y, z))
         return 0;
     return c->blocks[zxy_index_l(x + 1, y + 1, z + 1)];
+}
+
+ivec3 chunk_world_pos(struct chunk *c) {
+    ASSERT_CHUNK(c);
+    return (ivec3){c->pos.x * C_SIZE, c->pos.y * C_SIZE, c->pos.z * C_SIZE};
 }
 
 void chunk_set_neighbour(struct chunk *c, struct chunk *neighbour, int face) {

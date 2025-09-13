@@ -119,7 +119,7 @@ int main() {
     bool track_gen_time = true;
     double gen_start_time = glfwGetTime();
     double final_time = -1.0;
-    world_generate_initiale(&world, 8);
+    world_generate_initiale(&world, 32);
 
     GLuint chunk_program = gfx_load_program("chunk", asset_path("chunk.vs"), asset_path("chunk.fs"));
 
@@ -154,7 +154,7 @@ int main() {
             world_trace(&world, ro, rd, 100.0f, &hit);
         }
 
-        if (track_gen_time && world.heap_count == 0) {
+        if (track_gen_time && world.work_heap_count == 0) {
             final_time = glfwGetTime() - gen_start_time;
             track_gen_time = false;
         }
@@ -210,7 +210,7 @@ int main() {
             igSeparatorText("Raycast");
             if (hit.did_hit) {
                 igText("hit block: %s [%i]", block_name(hit.block), (int)hit.block);
-                igText("hit pos: (%d, %d, %d)", hit.pos.x, hit.pos.y, hit.pos.z);
+                igText("hit pos: (%d, %d, %d) local (%d, %d, %d)", hit.pos.x, hit.pos.y, hit.pos.z, hit.pos.x % C_SIZE, hit.pos.y % C_SIZE, hit.pos.z % C_SIZE);
                 igText("hit normal: (%d, %d, %d)", hit.normal.x, hit.normal.y, hit.normal.z);
                 igText("hit distance: %.1f", hit.distance);
             } else {
@@ -219,7 +219,7 @@ int main() {
 
             igSeparatorText("World");
             igText("Seed: %d", world.seed);
-            igText("Work queue: %d", world.heap_count);
+            igText("Work queue: %d", world.work_heap_count);
             igText("Workers: %d", world.num_worker_threads);
             igText("Gentime: %s", track_gen_time ? "generating..." : "done");
             if (track_gen_time) {

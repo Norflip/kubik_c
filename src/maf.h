@@ -43,6 +43,7 @@ typedef struct {
     }
 
 vec3 v3_add(vec3 a, vec3 b);
+vec3 v3_addf(vec3 v, float f);
 vec3 v3_sub(vec3 a, vec3 b);
 vec3 v3_scale(vec3 v, float s);
 vec3 v3_mul(vec3 a, vec3 b);

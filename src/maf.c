@@ -6,6 +6,10 @@ vec3 v3_add(vec3 a, vec3 b) {
     return (vec3){a.x + b.x, a.y + b.y, a.z + b.z};
 }
 
+vec3 v3_addf(vec3 v, float f) {
+    return (vec3){v.x + f, v.y + f, v.z + f};
+}
+
 vec3 v3_sub(vec3 a, vec3 b) {
     return (vec3){a.x - b.x, a.y - b.y, a.z - b.z};
 }

@@ -11,8 +11,8 @@ struct world;
 struct chunk;
 struct drawbuf;
 
-#define BUFFER_SIZE MB(64)
-#define PAGE_SIZE KB(4)
+#define BUFFER_SIZE MB(32)
+#define PAGE_SIZE KB(2)
 #define PAGE_COUNT (BUFFER_SIZE / PAGE_SIZE)
 #define BITS_PER_WORD (sizeof(uint64_t) * 8)
 #define BITMAP_WORD_COUNT ((PAGE_COUNT + BITS_PER_WORD - 1) / BITS_PER_WORD)
@@ -25,10 +25,56 @@ struct draw_command {
     GLuint baseInstance;
 };
 
+/*
+struct draw_elements_command {
+    GLuint count;
+    GLuint instanceCount;
+    GLuint firstIndex;
+    GLint baseVertex;
+    GLuint baseInstance;
+};
+*/
+
 struct per_chunk_data {
     int x, y, z;
     col32_t tint;
 };
+
+/*
+// A more generic version, not used for now
+struct rnd_bucket {
+    GLuint buffer;
+    void *mapped;
+
+    size_t buffer_size;
+    size_t page_size;
+    size_t page_count;
+
+    uint64_t page_bitmap[BITMAP_WORD_COUNT];
+    size_t free_pages;
+    size_t last_alloc_word;
+
+    uint64_t *flush_ranges;
+    size_t flush_range_count, flush_range_cap;
+
+    // draw commands
+    GLuint cmd_buffer;
+    void *cmds;
+    int cmds_count, cmds_cap;
+    int cmd_type; // 0 = arrays, 1 = elements
+
+    // per object data, same count as cmds_count
+    GLuint object_data_buffer;
+    void *object_data_ptr;
+    size_t object_stride, object_length;
+};
+
+struct rnd_container {
+    struct rnd_bucket *buckets;
+    int bucket_count, bucket_cap;
+    mtx_t lock;
+};
+*/
 
 // chunk draw buffer
 // TODO: rename it?

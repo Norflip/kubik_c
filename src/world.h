@@ -33,8 +33,8 @@ struct world {
     int hunk_count, hunk_cap;
     struct worldrnd rnd;
 
-    struct work *heap;
-    size_t heap_count, heap_cap;
+    struct work *work_heap;
+    size_t work_heap_count, work_heap_cap;
     mtx_t work_lock;
     cnd_t work_cond;
 };
@@ -52,11 +52,13 @@ void world_generate_initiale(struct world *w, int size);
 struct chunk *world_get_chunk(struct world *w, int x, int y, int z);
 void world_set_block(struct world *w, int x, int y, int z, block_t block);
 block_t world_get_block(struct world *w, int x, int y, int z);
-
 int world_sample_height(struct world *w, int x, int z);
 
 void world_draw(struct world *w, struct cam *cam, GLuint program, GLuint atlas, int atlas_depth);
 bool world_trace(struct world *w, vec3 o, vec3 dir, float max_distance, struct world_hit *hit);
-void gen_chunk_base(struct world *w, struct chunk *c);
+
+// Debugging
+// validates the chunks and their data
+void validate_world(struct world *w);
 
 #endif // WORLD_H

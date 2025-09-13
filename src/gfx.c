@@ -17,7 +17,7 @@ static struct linevert *l_mapped;
 static size_t l_count, l_cap;
 static GLuint empty_vao;
 
-static struct cam *g_active_cam = NULL;
+static const struct cam *g_active_cam = NULL;
 static bool g_lines_enabled = true;
 
 static inline size_t file_size(FILE *f) {

@@ -260,7 +260,8 @@ void worldrnd_queue_chunk(struct worldrnd *rnd, struct chunk *c) {
 
     int index = buf->cmds_count;
     buf->cmds[index] = cmd;
-    buf->chunk_data[index] = (struct per_chunk_data){c->x * C_SIZE, c->y * C_SIZE, c->z * C_SIZE, c->tint};
+    const ivec3 wpos = chunk_world_pos(c);
+    buf->chunk_data[index] = (struct per_chunk_data){.x = wpos.x, .y = wpos.y, .z = wpos.z, .tint = c->tint};
     buf->cmds_count++;
     rnd->added_cmds_count++;
     mtx_unlock(&rnd->cmd_lock);
