@@ -20,6 +20,14 @@ static GLuint empty_vao;
 static const struct cam *g_active_cam = NULL;
 static bool g_lines_enabled = true;
 
+struct {
+    GLuint ow_query_objects[2]; // Double buffer for async queries
+    uint64_t ow_samples_passed;
+    uint64_t ow_fragments_written;
+    int pingpong_frame_index;
+    float ow_ratio;
+} stats;
+
 static inline size_t file_size(FILE *f) {
     fseek(f, 0, SEEK_END);
     size_t size = ftell(f);
@@ -77,6 +85,9 @@ void gfx_initialize(void) {
     glCreateBuffers(1, &(l_vbo));
     glNamedBufferStorage(l_vbo, size_aligned, NULL, storage_flags);
     l_mapped = glMapNamedBufferRange(l_vbo, 0, size_aligned, mapping_flags);
+
+    glGenQueries(2, stats.ow_query_objects);
+    stats.pingpong_frame_index = 0;
 }
 
 void gfx_shutdown(void) {
@@ -87,9 +98,17 @@ void gfx_shutdown(void) {
 void gfx_start_frame(const struct cam *c) {
     g_active_cam = c;
     dbg_clear();
+    glBeginQuery(GL_SAMPLES_PASSED, stats.ow_query_objects[stats.pingpong_frame_index]);
 }
 
 void gfx_end_frame(void) {
+
+    glEndQuery(GL_SAMPLES_PASSED);
+
+    glGetQueryObjectui64v(stats.ow_query_objects[stats.pingpong_frame_index], GL_QUERY_RESULT, &stats.ow_samples_passed);
+    stats.ow_ratio = (float)stats.ow_samples_passed / (g_active_cam->width * g_active_cam->height);
+    stats.pingpong_frame_index = 1 - stats.pingpong_frame_index;
+
     if (l_count > 0) {
         const size_t size = l_count * sizeof(struct linevert) * 2;
         // glMemoryBarrier(GL_VERTEX_ATTRIB_ARRAY_BARRIER_BIT);
@@ -110,6 +129,13 @@ void gfx_end_frame(void) {
 
         l_count = 0;
     }
+}
+
+struct gfx_stats gfx_get_stats(void) {
+    struct gfx_stats s = {0};
+    s.samples_passed = stats.ow_samples_passed;
+    s.overdraw_ratio = stats.ow_ratio;
+    return s;
 }
 
 void gfx_enable_lines(bool enable) {

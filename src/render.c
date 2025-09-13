@@ -157,8 +157,8 @@ void worldrnd_init(struct worldrnd *rnd, int max_commands) {
     }
 
     rnd->drawbuf[rnd->drawbuf_count++] = alloc_drawbuf(rnd->max_commands);
-    mtx_init(&rnd->upload_lock);
-    mtx_init(&rnd->cmd_lock);
+    mutex_init(&rnd->upload_lock);
+    mutex_init(&rnd->cmd_lock);
 }
 
 bool worldrnd_upload(struct worldrnd *rnd, struct chunk *c, const void *data, uint32_t size) {
@@ -167,24 +167,24 @@ bool worldrnd_upload(struct worldrnd *rnd, struct chunk *c, const void *data, ui
 
     size_t page_count = size_to_pages(size);
     struct drawbuf *buf = NULL;
-    mtx_lock(&rnd->upload_lock);
+    mutex_lock(&rnd->upload_lock);
 
     size_t pos = 0;
     if (!find_space(rnd, page_count, &buf, &pos)) {
         fprintf(stderr, "worldrnd_upload: failed to find space\n");
-        mtx_unlock(&rnd->upload_lock);
+        mutex_unlock(&rnd->upload_lock);
         return false;
     }
 
     if (pos >= PAGE_COUNT) {
         fprintf(stderr, "worldrnd_upload: position is out of bounds\n");
-        mtx_unlock(&rnd->upload_lock);
+        mutex_unlock(&rnd->upload_lock);
         return false;
     }
 
     if (buf == NULL) {
         fprintf(stderr, "worldrnd_upload: draw buffer is NULL\n");
-        mtx_unlock(&rnd->upload_lock);
+        mutex_unlock(&rnd->upload_lock);
         return false;
     }
 
@@ -202,7 +202,7 @@ bool worldrnd_upload(struct worldrnd *rnd, struct chunk *c, const void *data, ui
     // add the dirty range
     uint64_t *dirty_range = &buf->flush_ranges[buf->flush_range_count++];
     *dirty_range = ((uint64_t)pos << 32) | (uint32_t)size;
-    mtx_unlock(&rnd->upload_lock);
+    mutex_unlock(&rnd->upload_lock);
 
     c->mdi_page = pos;
     c->mdi_size = size;
@@ -228,7 +228,7 @@ bool worldrnd_unload(struct worldrnd *rnd, struct chunk *c) {
 }
 
 void worldrnd_clear(struct worldrnd *rnd) {
-    mtx_lock(&rnd->cmd_lock);
+    mutex_lock(&rnd->cmd_lock);
     for (int i = 0; i < rnd->drawbuf_count; i++) {
         struct drawbuf *buf = rnd->drawbuf[i];
         buf->cmds_count = 0;
@@ -237,7 +237,7 @@ void worldrnd_clear(struct worldrnd *rnd) {
 
     rnd->draw_count = 0;
     rnd->added_cmds_count = 0;
-    mtx_unlock(&rnd->cmd_lock);
+    mutex_unlock(&rnd->cmd_lock);
 }
 
 void worldrnd_queue_chunk(struct worldrnd *rnd, struct chunk *c) {
@@ -256,7 +256,7 @@ void worldrnd_queue_chunk(struct worldrnd *rnd, struct chunk *c) {
         return;
     }
 
-    mtx_lock(&rnd->cmd_lock);
+    mutex_lock(&rnd->cmd_lock);
 
     int index = buf->cmds_count;
     buf->cmds[index] = cmd;
@@ -264,7 +264,7 @@ void worldrnd_queue_chunk(struct worldrnd *rnd, struct chunk *c) {
     buf->chunk_data[index] = (struct per_chunk_data){.x = wpos.x, .y = wpos.y, .z = wpos.z, .tint = c->tint};
     buf->cmds_count++;
     rnd->added_cmds_count++;
-    mtx_unlock(&rnd->cmd_lock);
+    mutex_unlock(&rnd->cmd_lock);
 }
 
 void worldrnd_draw(struct worldrnd *rnd, struct cam *cam, GLuint program, GLuint atlas, int atlas_count) {
@@ -280,7 +280,7 @@ void worldrnd_draw(struct worldrnd *rnd, struct cam *cam, GLuint program, GLuint
     glUniform1ui(glGetUniformLocation(program, "atlas_depth"), (u32)atlas_count);
     glBindVertexArray(empty_vao);
 
-    mtx_lock(&rnd->cmd_lock);
+    mutex_lock(&rnd->cmd_lock);
 
     for (int i = 0; i < rnd->drawbuf_count; i++) {
         struct drawbuf *buf = rnd->drawbuf[i];
@@ -307,5 +307,5 @@ void worldrnd_draw(struct worldrnd *rnd, struct cam *cam, GLuint program, GLuint
         rnd->draw_count++;
     }
 
-    mtx_unlock(&rnd->cmd_lock);
+    mutex_unlock(&rnd->cmd_lock);
 }

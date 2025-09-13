@@ -38,7 +38,7 @@ struct chunk {
     enum chunk_flag flags;
 
     block_t blocks[C_SIZEP3];
-    int fill_count; // excludes the padded blocks? this needs to be double checked
+    int fill_count; // excludes the padded blocks
     struct chunk *neighbours[6];
 
     // rendering stuff
@@ -52,13 +52,14 @@ struct chunk {
     void *mdiptr;
     bool mdi_valid;
 
-    mtx_t lock;
+    mutex_t lock;
 };
 
 void chunk_initialize(struct chunk *c, chunk_pos_t pos, enum chunk_flag flags);
 bool chunk_set_block(struct chunk *c, int x, int y, int z, block_t value);
 block_t chunk_get_block(struct chunk *c, int x, int y, int z);
 ivec3 chunk_world_pos(struct chunk *c);
+uint32_t chunk_seed(struct chunk *c);
 
 void chunk_set_neighbour(struct chunk *c, struct chunk *neighbour, int face);
 size_t chunk_generate_mesh_data(struct chunk *c, void *buffer);

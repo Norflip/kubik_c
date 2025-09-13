@@ -14,29 +14,33 @@
 #    error Unsupported platform
 #endif
 
-typedef HANDLE thrd_t;
-typedef CRITICAL_SECTION mtx_t;
-typedef CONDITION_VARIABLE cnd_t;
+typedef HANDLE thread_t;
+typedef CRITICAL_SECTION mutex_t;
+typedef CONDITION_VARIABLE cond_t;
+typedef struct rwlock {
+    SRWLOCK lock;
+    int is_write;
+} rwlock_t;
 
 // thread
-int thrd_init(thrd_t *thread, void *(*fn)(void *), void *arg);
-void thrd_join(thrd_t thread);
-void thrd_detach(thrd_t thread);
-void thrd_sleep(int ms);
-int thrd_id(void);
-void thrd_yield(void);
+int thread_init(thread_t *thread, void *(*fn)(void *), void *arg);
+void thread_join(thread_t thread);
+void thread_detach(thread_t thread);
+void thread_sleep(int ms);
+int thread_id(void);
+void thread_yield(void);
 
 // mtx, recursive?
-int mtx_init(mtx_t *mtx);
-void mtx_destroy(mtx_t *mtx);
-void mtx_lock(mtx_t *mtx);
-void mtx_unlock(mtx_t *mtx);
+int mutex_init(mutex_t *mtx);
+void mutex_destroy(mutex_t *mtx);
+void mutex_lock(mutex_t *mtx);
+void mutex_unlock(mutex_t *mtx);
 
 // cndition
-int cnd_init(cnd_t *cnd);
-void cnd_destroy(cnd_t *cnd);
-void cnd_wait(cnd_t *cnd, mtx_t *mtx);
-void cnd_signal(cnd_t *cnd);
-void cnd_broadcast(cnd_t *cnd);
+int cond_init(cond_t *cnd);
+void cond_destroy(cond_t *cnd);
+void cond_wait(cond_t *cnd, mutex_t *mtx);
+void cond_signal(cond_t *cnd);
+void cond_broadcast(cond_t *cnd);
 
 #endif // PLATF_H

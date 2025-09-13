@@ -104,8 +104,8 @@ struct worldrnd {
     struct drawbuf **drawbuf;
     int drawbuf_count, drawbuf_cap;
     int max_commands;
-    mtx_t upload_lock;
-    mtx_t cmd_lock;
+    mutex_t upload_lock;
+    mutex_t cmd_lock;
 
     // stats
     int draw_count;

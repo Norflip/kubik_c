@@ -2,6 +2,7 @@
 #define WORLD_H
 #include "cam.h"
 #include "chunk.h"
+#include "gfx.h"
 #include "maf.h"
 #include "platf.h"
 #include "render.h"
@@ -35,8 +36,8 @@ struct world {
 
     struct work *work_heap;
     size_t work_heap_count, work_heap_cap;
-    mtx_t work_lock;
-    cnd_t work_cond;
+    mutex_t work_lock;
+    cond_t work_cond;
 };
 
 struct world_hit {
@@ -47,12 +48,13 @@ struct world_hit {
 };
 
 void world_init(struct world *w, int seed, int num_worker_threads);
-void world_generate_initiale(struct world *w, int size);
+void world_generate_initial(struct world *w, int size);
 
 struct chunk *world_get_chunk(struct world *w, int x, int y, int z);
 void world_set_block(struct world *w, int x, int y, int z, block_t block);
 block_t world_get_block(struct world *w, int x, int y, int z);
 int world_sample_height(struct world *w, int x, int z);
+bool world_is_working(struct world *w);
 
 void world_draw(struct world *w, struct cam *cam, GLuint program, GLuint atlas, int atlas_depth);
 bool world_trace(struct world *w, vec3 o, vec3 dir, float max_distance, struct world_hit *hit);

@@ -26,6 +26,8 @@ static bool draw_wireframe = false;
 static bool draw_lines = true;
 static bool vsync = true;
 
+static struct world world;
+
 static void glfw_error_cb(int error, const char *description);
 static void glfw_key_callback(GLFWwindow *window, int key, int scancode, int action, int mods);
 static void GLAPIENTRY gl_debug_callback(GLenum source, GLenum type, GLuint id, GLenum severity, GLsizei length, const GLchar *message, const void *userParam);
@@ -112,14 +114,13 @@ int main() {
     struct cam camera;
     cam_initialize(&camera, window_width, window_height, to_rad(45.0f));
 
-    struct world world;
     world_init(&world, 0, 4);
 
     // start time
     bool track_gen_time = true;
     double gen_start_time = glfwGetTime();
     double final_time = -1.0;
-    world_generate_initiale(&world, 32);
+    world_generate_initial(&world, 32);
 
     GLuint chunk_program = gfx_load_program("chunk", asset_path("chunk.vs"), asset_path("chunk.fs"));
 
@@ -191,6 +192,7 @@ int main() {
         // tmp_world_draw(&world, &camera, chunk_program, chunk_atlas, atlas_depth);
         world_draw(&world, &camera, chunk_program, chunk_atlas, atlas_depth);
 
+#pragma region DebugUI
         igSetNextWindowPos((ImVec2){0, 0}, ImGuiCond_Always, (ImVec2){0, 0});
         igBegin(" ", NULL, 0);
         {
@@ -199,13 +201,13 @@ int main() {
             igText("wireframe: %s (F1 to toggle)", draw_wireframe ? "[ON]" : "[OFF]");
             igText("vsync: %s (F2 to toggle)", vsync ? "[ON]" : "[OFF]");
             igText("debug lines: %s (F3 to toggle)", draw_lines ? "[ON]" : "[OFF]");
+            igText("Validate world [F8]");
 
             igSeparatorText("Player");
             igText("pos:   (%d, %d, %d)", (int)camera.pos.x, (int)camera.pos.y, (int)camera.pos.z);
             igText("chunk: (%d, %d, %d)", u_idiv((int)camera.pos.x, C_SIZE), u_idiv((int)camera.pos.y, C_SIZE), u_idiv((int)camera.pos.z, C_SIZE));
             igText("hunk:   (%d, %d)", u_idiv((int)camera.pos.x, HW_SIZE), u_idiv((int)camera.pos.z, HW_SIZE));
-            int height = world_sample_height(&world, (int)camera.pos.x, (int)camera.pos.z);
-            igText("ground height: %d", height);
+            igText("ground height: %d", world_sample_height(&world, (int)camera.pos.x, (int)camera.pos.z));
 
             igSeparatorText("Raycast");
             if (hit.did_hit) {
@@ -215,6 +217,9 @@ int main() {
                 igText("hit distance: %.1f", hit.distance);
             } else {
                 igText("No hit");
+                igText(" ");
+                igText(" ");
+                igText(" ");
             }
 
             igSeparatorText("World");
@@ -231,8 +236,26 @@ int main() {
 
             igText("Chunk Count: %d", world.chunk_count);
             igText("Hunk Count: %d", world.hunk_count);
+
+            igSeparatorText("Renderer");
+            struct gfx_stats stats = gfx_get_stats();
+            igText("Samples Passed: %llu", stats.samples_passed);
+            igText("Overdraw Ratio: %.2fx", stats.overdraw_ratio);
+
             igText("Draw Calls: %d", world.rnd.draw_count);
             igText("Draw Commands: %d", world.rnd.added_cmds_count);
+
+            GLint total_mem = 0, avail_mem = 0;
+            float pressure_ratio = 0.0f;
+            igSeparatorText("GPU Memory");
+            if (gl_get_gpu_memory_info(&total_mem, &avail_mem, &pressure_ratio)) {
+                igText("Total:     %d MB", total_mem / 1024);
+                igText("Used:      %d MB", (total_mem - avail_mem) / 1024);
+                igText("Free:      %d MB", avail_mem / 1024);
+                igText("Pressure:  %.1f%%", pressure_ratio * 100.0f);
+            } else {
+                igText("Unable to get GPU memory info");
+            }
 
             for (int i = 0; i < world.rnd.draw_count; i++) {
                 struct drawbuf *buf = world.rnd.drawbuf[i];
@@ -249,6 +272,10 @@ int main() {
             }
         }
         igEnd();
+#pragma endregion
+
+        igRender();
+        ImGui_ImplOpenGL3_RenderDrawData(igGetDrawData());
 
         gfx_end_frame();
         igRender();
@@ -286,6 +313,10 @@ static void glfw_key_callback(GLFWwindow *window, int key, int scancode, int act
 
     if (action == GLFW_PRESS && key == GLFW_KEY_F3) {
         draw_lines = !draw_lines;
+    }
+
+    if (action == GLFW_PRESS && key == GLFW_KEY_F8) {
+        validate_world(&world);
     }
 
     // if (igGetIO()->WantCaptureKeyboard)return;

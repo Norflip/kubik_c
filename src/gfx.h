@@ -14,10 +14,16 @@
 
 #define LINE_FADE_MAX_DISTANCE 400.0f
 
+struct gfx_stats {
+    uint64_t samples_passed;
+    float overdraw_ratio;
+};
+
 void gfx_initialize(void);
 void gfx_shutdown(void);
 void gfx_start_frame(const struct cam *c);
 void gfx_end_frame(void);
+struct gfx_stats gfx_get_stats(void);
 
 void gfx_enable_lines(bool enable);
 

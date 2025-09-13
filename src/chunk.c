@@ -41,7 +41,7 @@ void chunk_initialize(struct chunk *c, chunk_pos_t pos, enum chunk_flag flags) {
 
     c->state = C_STATE_EMPTY;
     c->flags = flags;
-    mtx_init(&c->lock);
+    mutex_init(&c->lock);
 }
 
 static struct chunk *get_neighbour(struct chunk *c, int face) {
@@ -168,6 +168,23 @@ ivec3 chunk_world_pos(struct chunk *c) {
     return (ivec3){c->pos.x * C_SIZE, c->pos.y * C_SIZE, c->pos.z * C_SIZE};
 }
 
+uint32_t chunk_seed(struct chunk *c) {
+    ASSERT_CHUNK(c);
+
+    // FNV-1a hash https://en.wikipedia.org/wiki/Fowler%E2%80%93Noll%E2%80%93Vo_hash_function
+    const uint32_t prime = 16777619u;
+    const uint32_t basis = 2166136261u;
+
+    uint32_t hash = basis;
+    hash ^= (uint32_t)c->pos.x;
+    hash *= prime;
+    hash ^= (uint32_t)c->pos.y;
+    hash *= prime;
+    hash ^= (uint32_t)c->pos.z;
+    hash *= prime;
+    return hash;
+}
+
 void chunk_set_neighbour(struct chunk *c, struct chunk *neighbour, int face) {
     ASSERT_CHUNK(c);
     assert(face >= 0 && face < 6);
@@ -267,9 +284,9 @@ size_t chunk_generate_mesh_data(struct chunk *c, void *buffer) {
 }
 
 void chunk_lock(struct chunk *c) {
-    mtx_lock(&c->lock);
+    mutex_lock(&c->lock);
 }
 
 void chunk_unlock(struct chunk *c) {
-    mtx_unlock(&c->lock);
+    mutex_unlock(&c->lock);
 }

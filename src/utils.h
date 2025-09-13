@@ -37,4 +37,15 @@ enum dir { DIR_RIGHT = 0, DIR_LEFT, DIR_UP, DIR_DOWN, DIR_FRONT, DIR_BACK };
 #define opposite_dir(i) (i + (!((i) % 2) ? 1 : -1))
 static const ivec3 FACE_NORMALS[6] = {{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}};
 
+// RNG
+static inline uint32_t rng_next(uint32_t *state) {
+    // xorshift32
+    uint32_t x = *state;
+    x ^= x << 13;
+    x ^= x >> 17;
+    x ^= x << 5;
+    *state = x;
+    return x;
+}
+
 #endif // UTILS_H
