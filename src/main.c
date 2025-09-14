@@ -17,8 +17,9 @@
 #include "gfx.h"
 #include "world.h"
 
-#define DEFAULT_WINDOW_FACTOR_HEIGHT 0.8f
-#define DEFAULT_ASPECT_RATIO (4.0f / 3.0f)
+#define DEFAULT_WINDOW_FACTOR_HEIGHT 0.9f
+// #define DEFAULT_ASPECT_RATIO (4.0f / 3.0f)
+#define DEFAULT_ASPECT_RATIO (16.0f / 9.0f)
 
 static GLFWwindow *window;
 static int window_width, window_height;
@@ -113,14 +114,15 @@ int main() {
 
     struct cam camera;
     cam_initialize(&camera, window_width, window_height, to_rad(45.0f));
+    cam_set_transform(&camera, (vec3){8.0f, 110.0f, 8.0f}, quat_identity());
 
     world_init(&world, 0, 4);
+    world_generate_initial(&world, 12);
 
     // start time
     bool track_gen_time = true;
     double gen_start_time = glfwGetTime();
     double final_time = -1.0;
-    world_generate_initial(&world, 32);
 
     GLuint chunk_program = gfx_load_program("chunk", asset_path("chunk.vs"), asset_path("chunk.fs"));
 
@@ -193,6 +195,7 @@ int main() {
         world_draw(&world, &camera, chunk_program, chunk_atlas, atlas_depth);
 
 #pragma region DebugUI
+#if 1
         igSetNextWindowPos((ImVec2){0, 0}, ImGuiCond_Always, (ImVec2){0, 0});
         igBegin(" ", NULL, 0);
         {
@@ -217,9 +220,6 @@ int main() {
                 igText("hit distance: %.1f", hit.distance);
             } else {
                 igText("No hit");
-                igText(" ");
-                igText(" ");
-                igText(" ");
             }
 
             igSeparatorText("World");
@@ -272,6 +272,7 @@ int main() {
             }
         }
         igEnd();
+#endif
 #pragma endregion
 
         igRender();

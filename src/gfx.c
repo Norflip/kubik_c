@@ -19,6 +19,7 @@ static GLuint empty_vao;
 
 static const struct cam *g_active_cam = NULL;
 static bool g_lines_enabled = true;
+static bool l_fade_enabled = true;
 
 struct {
     GLuint ow_query_objects[2]; // Double buffer for async queries
@@ -75,6 +76,7 @@ void gfx_initialize(void) {
     l_program = gfx_load_program("lines", asset_path("line.vs"), asset_path("line.fs"));
     l_cap = MAX_LINES;
     l_count = 0;
+    l_fade_enabled = true;
 
     GLint alignment = GL_NONE;
     glGetIntegerv(GL_UNIFORM_BUFFER_OFFSET_ALIGNMENT, &alignment);
@@ -158,13 +160,18 @@ void dbg_line(vec3 start, vec3 end, col32_t color) {
         return;
     }
 
-    float len0 = v3_len(v3_sub(start, g_active_cam->pos));
-    float len1 = v3_len(v3_sub(end, g_active_cam->pos));
-    if (len0 > LINE_FADE_MAX_DISTANCE && len1 > LINE_FADE_MAX_DISTANCE)
-        return;
+    if (l_fade_enabled) {
+        float len0 = v3_len(v3_sub(start, g_active_cam->pos));
+        float len1 = v3_len(v3_sub(end, g_active_cam->pos));
+        if (len0 > LINE_FADE_MAX_DISTANCE && len1 > LINE_FADE_MAX_DISTANCE)
+            return;
+        l_mapped[l_count * 2 + 0] = (struct linevert){start, adjust_alpha(color, len0)};
+        l_mapped[l_count * 2 + 1] = (struct linevert){end, adjust_alpha(color, len1)};
+    } else {
+        l_mapped[l_count * 2 + 0] = (struct linevert){start, color};
+        l_mapped[l_count * 2 + 1] = (struct linevert){end, color};
+    }
 
-    l_mapped[l_count * 2 + 0] = (struct linevert){start, adjust_alpha(color, len0)};
-    l_mapped[l_count * 2 + 1] = (struct linevert){end, adjust_alpha(color, len1)};
     l_count++;
 }
 
@@ -197,6 +204,10 @@ void dbg_cube(vec3 pos, vec3 ext, col32_t color) {
     vec3 min = v3_sub(pos, ext);
     vec3 max = v3_add(pos, ext);
     dbg_aabb(min, max, color);
+}
+
+void dbg_enable_fade(bool enable) {
+    l_fade_enabled = enable;
 }
 
 void dbg_clear(void) {

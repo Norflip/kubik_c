@@ -39,6 +39,7 @@ void chunk_initialize(struct chunk *c, chunk_pos_t pos, enum chunk_flag flags) {
     c->min = (vec3){c->pos.x * C_SIZE, c->pos.y * C_SIZE, c->pos.z * C_SIZE};
     c->max = v3_addf(c->min, C_SIZE);
 
+    c->blocks = NULL;
     c->state = C_STATE_EMPTY;
     c->flags = flags;
     mutex_init(&c->lock);
@@ -79,11 +80,39 @@ static inline struct chunk *find_neighbor(struct chunk *chunk, int dx, int dy, i
     return current;
 }
 
+#define SUBCHUNK_INDEX(x, y, z) (((x) / SUBC_SIZEP) + (((y) / SUBC_SIZEP) * 2) + (((z) / SUBC_SIZEP) * 4))
+
+static bool try_alloc_block_data(struct chunk *c, block_t value) {
+    ASSERT_CHUNK(c);
+    chunk_lock(c);
+
+    if (c->blocks != NULL) {
+        chunk_unlock(c);
+        return true;
+    }
+
+    if (value == BLK_AIR && c->blocks == NULL) {
+        chunk_unlock(c);
+        return false;
+    }
+
+    c->blocks = calloc(C_SIZEP3, sizeof(block_t));
+    if (c->blocks == NULL) {
+        fprintf(stderr, "chunk_set_block: failed to allocate memory for chunk blocks\n");
+        chunk_unlock(c);
+        return false;
+    }
+
+    chunk_unlock(c);
+    return true;
+}
+
 static void set_padded_block(struct chunk *c, int x, int y, int z, block_t value) {
 
     if (!on_border(x, y, z))
         return;
 
+    // seems a bit overkill to make a bitmask for this tbh
     uint8_t boundary_mask = 0;
     if (x == C_SIZE - 1)
         boundary_mask |= (1 << DIR_RIGHT); // +X boundary
@@ -128,9 +157,11 @@ static void set_padded_block(struct chunk *c, int x, int y, int z, block_t value
                 break; // -Z face
             }
 
-            int idx = zxy_index_l(tx + 1, ty + 1, tz + 1);
-            n->blocks[idx] = value;
-            n->dirty = true;
+            if (try_alloc_block_data(n, value)) {
+                int idx = zxy_index_l(tx + 1, ty + 1, tz + 1);
+                n->blocks[idx] = value;
+                n->dirty = true;
+            }
         }
     }
 }
@@ -139,6 +170,13 @@ bool chunk_set_block(struct chunk *c, int x, int y, int z, block_t value) {
     ASSERT_CHUNK(c);
     if (!inside(x, y, z)) {
         fprintf(stderr, "chunk_set_block: position (%d, %d, %d) is out of bounds in chunk (%d, %d, %d)\n", x, y, z, c->pos.x, c->pos.y, c->pos.z);
+        return false;
+    }
+
+    if (value == BLK_AIR && c->blocks == NULL)
+        return true;
+
+    if (!try_alloc_block_data(c, value)) {
         return false;
     }
 
@@ -159,8 +197,14 @@ bool chunk_set_block(struct chunk *c, int x, int y, int z, block_t value) {
 block_t chunk_get_block(struct chunk *c, int x, int y, int z) {
     ASSERT_CHUNK(c);
     if (!inside_padded(x, y, z))
-        return 0;
+        return BLK_AIR;
+    if (c->blocks == NULL)
+        return BLK_AIR;
     return c->blocks[zxy_index_l(x + 1, y + 1, z + 1)];
+}
+
+bool chunk_block_is_solid(struct chunk *c, int x, int y, int z) {
+    return chunk_get_block(c, x, y, z) != BLK_AIR;
 }
 
 ivec3 chunk_world_pos(struct chunk *c) {
@@ -223,8 +267,7 @@ static void get_face_ao(struct chunk *c, int x, int y, int z, int face, uint8_t 
         int ox = x + ao_offsets[face][i].x;
         int oy = y + ao_offsets[face][i].y;
         int oz = z + ao_offsets[face][i].z;
-        block_t b = c->blocks[zxy_index_l(ox + 1, oy + 1, oz + 1)];
-        solids[i] = (b != 0);
+        solids[i] = chunk_block_is_solid(c, ox, oy, oz);
     }
 
 #define ao_value(s1, c, s2) ((solids[s1] && solids[s2]) ? 1 : (3 - (solids[s1] + solids[s2] + solids[c])))
@@ -239,6 +282,12 @@ static void get_face_ao(struct chunk *c, int x, int y, int z, int face, uint8_t 
 size_t chunk_generate_mesh_data(struct chunk *c, void *buffer) {
     ASSERT_CHUNK(c);
     if (c->fill_count <= 0 || !c->dirty) {
+        return 0;
+    }
+
+    if (!c->blocks) {
+        c->quad_count = 0;
+        c->dirty = false;
         return 0;
     }
 
@@ -265,9 +314,8 @@ size_t chunk_generate_mesh_data(struct chunk *c, void *buffer) {
                     int ox = x + normal.x;
                     int oy = y + normal.y;
                     int oz = z + normal.z;
-                    int o_idx = zxy_index_l(ox + 1, oy + 1, oz + 1);
-
-                    if (block_create_face(block, face, c->blocks[o_idx])) {
+                    // int o_idx = zxy_index_l(ox + 1, oy + 1, oz + 1);
+                    if (block_create_face(block, face, chunk_get_block(c, ox, oy, oz))) {
                         bool flip = false;
                         get_face_ao(c, x, y, z, face, ao, &flip);
                         struct mesh_quad quad = make_quad(x, y, z, face, block, ao, flip);

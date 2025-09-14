@@ -37,7 +37,8 @@ struct chunk {
     enum chunk_state state;
     enum chunk_flag flags;
 
-    block_t blocks[C_SIZEP3];
+    block_t *blocks; 
+
     int fill_count; // excludes the padded blocks
     struct chunk *neighbours[6];
 
@@ -58,6 +59,8 @@ struct chunk {
 void chunk_initialize(struct chunk *c, chunk_pos_t pos, enum chunk_flag flags);
 bool chunk_set_block(struct chunk *c, int x, int y, int z, block_t value);
 block_t chunk_get_block(struct chunk *c, int x, int y, int z);
+bool chunk_block_is_solid(struct chunk *c, int x, int y, int z);
+
 ivec3 chunk_world_pos(struct chunk *c);
 uint32_t chunk_seed(struct chunk *c);
 

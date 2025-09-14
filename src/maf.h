@@ -28,6 +28,10 @@ typedef struct {
     float m[16];
 } mat4;
 
+typedef struct {
+    int x, y;
+} ivec2;
+
 // casts to float*
 #define maf_ptr(f) ((float *)&(f))
 
@@ -55,6 +59,8 @@ float v3_lensqr(vec3 v);
 
 // ivec3
 ivec3 iv3_add(ivec3 a, ivec3 b);
+ivec3 iv3_sub(ivec3 a, ivec3 b);
+ivec3 iv3_div(ivec3 v, int d);
 ivec3 iv3_floor(vec3 v);
 
 // mat4

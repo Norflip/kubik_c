@@ -9,6 +9,7 @@
 #include "utils.h"
 
 #define H_SIZE 16
+#define H_SIZE2 (H_SIZE * H_SIZE)
 #define H_SIZE3 (H_SIZE * H_SIZE * H_SIZE)
 #define HW_SIZE (H_SIZE * C_SIZE)
 #define HW_SIZE2 (HW_SIZE * HW_SIZE)
@@ -48,7 +49,7 @@ struct world_hit {
 };
 
 void world_init(struct world *w, int seed, int num_worker_threads);
-void world_generate_initial(struct world *w, int size);
+void world_generate_initial(struct world *w, int load_radius);
 
 struct chunk *world_get_chunk(struct world *w, int x, int y, int z);
 void world_set_block(struct world *w, int x, int y, int z, block_t block);

@@ -30,6 +30,7 @@ void gfx_enable_lines(bool enable);
 void dbg_line(vec3 start, vec3 end, col32_t color);
 void dbg_aabb(vec3 min, vec3 max, col32_t color);
 void dbg_cube(vec3 pos, vec3 ext, col32_t color);
+void dbg_enable_fade(bool enable);
 void dbg_clear (void);
 
 GLuint gfx_load_program(const char *name, const char *vspath, const char *fspath);

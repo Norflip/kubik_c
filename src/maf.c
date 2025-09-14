@@ -51,6 +51,16 @@ ivec3 iv3_add(ivec3 a, ivec3 b) {
     return (ivec3){a.x + b.x, a.y + b.y, a.z + b.z};
 }
 
+ivec3 iv3_sub(ivec3 a, ivec3 b) {
+    return (ivec3){a.x - b.x, a.y - b.y, a.z - b.z};
+}
+
+ivec3 iv3_div(ivec3 v, int d) {
+    assert(d != 0);
+#define idiv_(x, d) ((x > 0) ? (x) / (d) : ((x) - (d) + 1) / (d))
+    return (ivec3){.x = idiv_(v.x, d), .y = idiv_(v.y, d), .z = idiv_(v.z, d)};
+}
+
 ivec3 iv3_floor(vec3 v) {
     return (ivec3){(int)floorf(v.x), (int)floorf(v.y), (int)floorf(v.z)};
 }
