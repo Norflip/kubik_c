@@ -15,6 +15,7 @@
 
 #include "cam.h"
 #include "gfx.h"
+#include "load.h"
 #include "world.h"
 
 #define DEFAULT_WINDOW_FACTOR_HEIGHT 0.9f
@@ -124,7 +125,7 @@ int main() {
     double gen_start_time = glfwGetTime();
     double final_time = -1.0;
 
-    GLuint chunk_program = gfx_load_program("chunk", asset_path("chunk.vs"), asset_path("chunk.fs"));
+    GLuint chunk_program = load_program("chunk", asset_path("chunk.vs"), asset_path("chunk.fs"));
 
     const char *atlas_paths[] = {
         asset_path("blocks/base.png"),       // 0
@@ -135,7 +136,7 @@ int main() {
     };
 
     int atlas_depth = 0;
-    GLuint chunk_atlas = gfx_load_atlas("atlas", atlas_paths, 5, 8, 8, 5, &atlas_depth);
+    GLuint chunk_atlas = load_atlas("atlas", atlas_paths, 5, 8, 8, 5, &atlas_depth);
 
     vec3 ro, rd;
     struct world_hit hit = {0};
@@ -242,8 +243,8 @@ int main() {
             igText("Samples Passed: %llu", stats.samples_passed);
             igText("Overdraw Ratio: %.2fx", stats.overdraw_ratio);
 
-            igText("Draw Calls: %d", world.rnd.draw_count);
-            igText("Draw Commands: %d", world.rnd.added_cmds_count);
+            // igText("Draw Calls: %d", world.rnd.draw_count);
+            // igText("Draw Commands: %d", world.rnd.added_cmds_count);
 
             GLint total_mem = 0, avail_mem = 0;
             float pressure_ratio = 0.0f;
@@ -257,19 +258,23 @@ int main() {
                 igText("Unable to get GPU memory info");
             }
 
-            for (int i = 0; i < world.rnd.draw_count; i++) {
-                struct drawbuf *buf = world.rnd.drawbuf[i];
-                if (igTreeNode_StrStr("drawbuffer", "buffer %d", i)) {
-                    igText("  Buffer size: %zu bytes [%zu MB]", BUFFER_SIZE, BUFFER_SIZE / (1024 * 1024));
-                    igText("  Page size: %zu bytes [%zu KB]", PAGE_SIZE, PAGE_SIZE / 1024);
-                    igText("  Total pages: %zu", PAGE_COUNT);
-                    igText("  Free pages: %zu", buf->free_pages);
-                    igText("  Used pages: %zu", PAGE_COUNT - buf->free_pages);
-                    igText("  Utilization: %.1f%%", 100.0 * (PAGE_COUNT - buf->free_pages) / PAGE_COUNT);
-                    igText("  Last Alloc: %d", buf->last_alloc_word);
-                    igTreePop();
-                }
+            // for (int i = 0; i < world.hunk_count; i++) {
+            //   struct hunk *h = world.hunks[i];
+            mesh_batch_t *batch = world.batch;
+
+            char str_id[64];
+            snprintf(str_id, sizeof(str_id), "buf_%d", 0);
+            if (igTreeNode_StrStr(str_id, "buffer %d", 0)) {
+                igText("  Buffer size: %zu bytes [%zu MB]", batch->buffer_size, batch->buffer_size / (1024 * 1024));
+                igText("  Page size: %zu bytes [%zu KB]", batch->page_size, batch->page_size / 1024);
+                igText("  Total pages: %zu", batch->page_count);
+                igText("  Free pages: %zu", batch->free_pages);
+                igText("  Used pages: %zu", batch->page_count - batch->free_pages);
+                igText("  Utilization: %.1f%%", 100.0 * (batch->page_count - batch->free_pages) / batch->page_count);
+                igText("  Last Alloc: %d", batch->last_alloc_word);
+                igTreePop();
             }
+            // }
         }
         igEnd();
 #endif

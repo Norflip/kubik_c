@@ -17,10 +17,13 @@
 typedef HANDLE thread_t;
 typedef CRITICAL_SECTION mutex_t;
 typedef CONDITION_VARIABLE cond_t;
+/*
+//todo
 typedef struct rwlock {
     SRWLOCK lock;
     int is_write;
 } rwlock_t;
+*/
 
 // thread
 int thread_init(thread_t *thread, void *(*fn)(void *), void *arg);

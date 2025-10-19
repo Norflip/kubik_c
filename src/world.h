@@ -4,9 +4,9 @@
 #include "chunk.h"
 #include "gfx.h"
 #include "maf.h"
-#include "platf.h"
-#include "render.h"
+#include "thread.h"
 #include "utils.h"
+#include "mesh.h"
 
 #define H_SIZE 16
 #define H_SIZE2 (H_SIZE * H_SIZE)
@@ -33,7 +33,9 @@ struct world {
 
     struct hunk **hunks;
     int hunk_count, hunk_cap;
-    struct worldrnd rnd;
+
+   // struct worldrnd rnd;
+    mesh_batch_t* batch;
 
     struct work *work_heap;
     size_t work_heap_count, work_heap_cap;

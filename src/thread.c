@@ -1,4 +1,4 @@
-#include "platf.h"
+#include "thread.h"
 
 // THREAD
 struct thread_starter {

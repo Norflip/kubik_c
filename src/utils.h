@@ -17,6 +17,8 @@ typedef uint64_t u64;
 #define u_max(a, b) ((a) > (b) ? (a) : (b))
 #define u_clamp(x, min, max) (u_min(u_max((x), (min)), (max)))
 
+#define u_index_zxy(x, y, z, l) ((z) + ((x) * (l)) + ((y) * (l) * (l)))
+
 #define KB(x) ((x) * 1024)
 #define MB(x) ((x) * 1024 * 1024)
 

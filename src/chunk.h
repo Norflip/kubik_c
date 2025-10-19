@@ -2,10 +2,11 @@
 #define CHUNK_H
 #include "block.h"
 #include "maf.h"
-#include "platf.h"
+#include "thread.h"
 #include "utils.h"
 #include <glad/gl.h>
 #include <stdbool.h>
+#include "mesh.h"
 
 #define C_SIZE 32
 #define C_SIZE3 (C_SIZE * C_SIZE * C_SIZE)
@@ -53,6 +54,7 @@ struct chunk {
     void *mdiptr;
     bool mdi_valid;
 
+    mesh_handle_t mesh_handle;
     mutex_t lock;
 };
 
@@ -66,6 +68,7 @@ uint32_t chunk_seed(struct chunk *c);
 
 void chunk_set_neighbour(struct chunk *c, struct chunk *neighbour, int face);
 size_t chunk_generate_mesh_data(struct chunk *c, void *buffer);
+size_t chunk_generate_face_mesh_data(struct chunk *c, int face, void *buffer);
 
 void chunk_lock(struct chunk *c);
 void chunk_unlock(struct chunk *c);

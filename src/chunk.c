@@ -22,10 +22,6 @@ static bool on_border(int x, int y, int z) {
     return (x == 0 || x == (C_SIZE - 1) || y == 0 || y == (C_SIZE - 1) || z == 0 || z == (C_SIZE - 1));
 }
 
-static inline int zxy_index_l(int x, int y, int z) {
-    return z + (x * C_SIZEP) + (y * C_SIZEP2);
-}
-
 #define ASSERT_CHUNK(c) \
     assert(c != NULL);  \
     assert(c->_canary == C_CANARY)
@@ -158,7 +154,7 @@ static void set_padded_block(struct chunk *c, int x, int y, int z, block_t value
             }
 
             if (try_alloc_block_data(n, value)) {
-                int idx = zxy_index_l(tx + 1, ty + 1, tz + 1);
+                int idx = u_index_zxy(tx + 1, ty + 1, tz + 1, C_SIZEP);
                 n->blocks[idx] = value;
                 n->dirty = true;
             }
@@ -180,7 +176,7 @@ bool chunk_set_block(struct chunk *c, int x, int y, int z, block_t value) {
         return false;
     }
 
-    const int index = zxy_index_l(x + 1, y + 1, z + 1);
+    const int index = u_index_zxy(x + 1, y + 1, z + 1, C_SIZEP);
     block_t old_value = c->blocks[index];
     if (old_value != 0 && value == 0) {
         c->fill_count--;
@@ -200,7 +196,7 @@ block_t chunk_get_block(struct chunk *c, int x, int y, int z) {
         return BLK_AIR;
     if (c->blocks == NULL)
         return BLK_AIR;
-    return c->blocks[zxy_index_l(x + 1, y + 1, z + 1)];
+    return c->blocks[u_index_zxy(x + 1, y + 1, z + 1, C_SIZEP)];
 }
 
 bool chunk_block_is_solid(struct chunk *c, int x, int y, int z) {
@@ -255,6 +251,8 @@ static struct mesh_quad make_quad(int x, int y, int z, int face, block_t block, 
     return quad;
 }
 
+#define ao_value(s1, c, s2) ((solids[s1] && solids[s2]) ? 1 : (3 - (solids[s1] + solids[s2] + solids[c])))
+
 static void get_face_ao(struct chunk *c, int x, int y, int z, int face, uint8_t *ao_out, bool *flip) {
     assert(face >= 0 && face < 6);
     // counter clockwise
@@ -270,20 +268,18 @@ static void get_face_ao(struct chunk *c, int x, int y, int z, int face, uint8_t 
         solids[i] = chunk_block_is_solid(c, ox, oy, oz);
     }
 
-#define ao_value(s1, c, s2) ((solids[s1] && solids[s2]) ? 1 : (3 - (solids[s1] + solids[s2] + solids[c])))
     ao_out[0] = ao_value(7, 0, 1); // BOT LEFT
     ao_out[1] = ao_value(1, 2, 3); // BOT RIGHT
     ao_out[2] = ao_value(3, 4, 5); // TOP LEFT
     ao_out[3] = ao_value(5, 6, 7); // TOP RIGHT
     *flip = !((ao_out[0] + ao_out[2] < ao_out[1] + ao_out[3]));
-#undef ao_value
 }
 
 size_t chunk_generate_mesh_data(struct chunk *c, void *buffer) {
     ASSERT_CHUNK(c);
-    if (c->fill_count <= 0 || !c->dirty) {
+    assert(buffer != NULL);
+    if (c->fill_count <= 0 || !c->dirty)
         return 0;
-    }
 
     if (!c->blocks) {
         c->quad_count = 0;
@@ -291,14 +287,7 @@ size_t chunk_generate_mesh_data(struct chunk *c, void *buffer) {
         return 0;
     }
 
-    const size_t max_faces = c->fill_count * 6; // 6 faces per block
     struct mesh_quad *quads = buffer;
-    // malloc(max_faces * sizeof(struct mesh_quad));
-
-    if (!quads) {
-        fprintf(stderr, "chunk_generate_mesh_data: failed to allocate memory for quads\n");
-        return 0;
-    }
 
     size_t added = 0;
     u8 ao[4] = {0, 0, 0, 0};
@@ -314,13 +303,54 @@ size_t chunk_generate_mesh_data(struct chunk *c, void *buffer) {
                     int ox = x + normal.x;
                     int oy = y + normal.y;
                     int oz = z + normal.z;
-                    // int o_idx = zxy_index_l(ox + 1, oy + 1, oz + 1);
+
                     if (block_create_face(block, face, chunk_get_block(c, ox, oy, oz))) {
                         bool flip = false;
                         get_face_ao(c, x, y, z, face, ao, &flip);
                         struct mesh_quad quad = make_quad(x, y, z, face, block, ao, flip);
                         quads[added++] = quad;
                     }
+                }
+            }
+        }
+    }
+
+    c->quad_count = added;
+    c->dirty = false;
+    return added;
+}
+
+size_t chunk_generate_face_mesh_data(struct chunk *c, int face, void *buffer) {
+    ASSERT_CHUNK(c);
+    assert(buffer != NULL);
+
+    if (c->fill_count <= 0 || !c->dirty)
+        return 0;
+
+    if (!c->blocks) {
+        c->quad_count = 0;
+        c->dirty = false;
+        return 0;
+    }
+
+    struct mesh_quad *quads = buffer;
+    size_t added = 0;
+    u8 ao[4] = {0, 0, 0, 0};
+    for (int y = 0; y < C_SIZE; y++) {
+        for (int x = 0; x < C_SIZE; x++) {
+            for (int z = 0; z < C_SIZE; z++) {
+                block_t block = chunk_get_block(c, x, y, z);
+                if (!block_is_solid(block))
+                    continue;
+
+                ivec3 normal = FACE_NORMALS[face];
+                int ox = x + normal.x;
+                int oy = y + normal.y;
+                int oz = z + normal.z;
+                if (block_create_face(block, face, chunk_get_block(c, ox, oy, oz))) {
+                    bool flip = false;
+                    get_face_ao(c, x, y, z, face, ao, &flip);
+                    quads[added++] = make_quad(x, y, z, face, block, ao, flip);
                 }
             }
         }

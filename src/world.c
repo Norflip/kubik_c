@@ -100,10 +100,6 @@ static void gen_chunk_base(struct world *w, struct chunk *c);
 static void gen_chunk_surface(struct world *w, struct chunk *c);
 static void gen_chunk_caves(struct world *w, struct chunk *c);
 
-static inline int zxy_index_l(int x, int y, int z, int l) {
-    return z + (x * l) + (y * l * l);
-}
-
 static inline void relative_pos(int x, int y, int z, int size, int *hx, int *hy, int *hz, int *lx, int *ly, int *lz) {
     *hx = u_idiv(x, size);
     *hy = u_idiv(y, size);
@@ -207,7 +203,14 @@ static void gen_chunk_mesh_fn(struct chunk *c, struct world *w, struct work *sel
     c->state = C_STATE_MESHING;
     void *quads = malloc(C_SIZE3 * sizeof(struct mesh_quad));
     size_t quad_count = chunk_generate_mesh_data(c, quads);
-    worldrnd_upload(&w->rnd, c, quads, quad_count * sizeof(struct mesh_quad));
+
+    if (quad_count > 0) {
+       // worldrnd_upload(&w->rnd, c, quads, quad_count * sizeof(struct mesh_quad));
+        if (!mesh_batch_alloc(w->batch, quads, quad_count * sizeof(struct mesh_quad), &c->mesh_handle)) {
+            fprintf(stderr, "gen_chunk_mesh_fn: failed to allocate mesh batch for chunk (%d, %d, %d)\n", c->pos.x, c->pos.y, c->pos.z);
+        }
+    }
+
     c->state = C_STATE_MESHED;
     free(quads);
 }
@@ -245,7 +248,7 @@ struct chunk *world_get_chunk(struct world *w, int x, int y, int z) {
     struct hunk *hunk = get_hunk(w, hx, hz);
     if (!hunk)
         return NULL;
-    int index = zxy_index_l(lx, ly, lz, H_SIZE);
+    int index = u_index_zxy(lx, ly, lz, H_SIZE);
     return hunk->chunks[index];
 }
 
@@ -293,6 +296,11 @@ static void set_block_internal(struct world *w, struct chunk *c, int lx, int ly,
     }
 }
 
+struct per_chunk_data2 {
+    int x, y, z;
+    col32_t tint;
+};
+
 void world_init(struct world *w, int seed, int num_worker_threads) {
     memset(w, 0, sizeof(struct world));
 
@@ -315,7 +323,9 @@ void world_init(struct world *w, int seed, int num_worker_threads) {
         exit(EXIT_FAILURE);
     }
 
-    worldrnd_init(&w->rnd, H_SIZE3);
+    //worldrnd_init(&w->rnd, H_SIZE3);
+
+    w->batch = mesh_batch_init("chunk_mesh_batch", MB(32), KB(2), H_SIZE3, sizeof(struct per_chunk_data2));
 
     // work queue
     w->work_heap_cap = 512;
@@ -398,7 +408,7 @@ void world_generate_initial(struct world *w, int load_radius) {
             int lx, ly, lz;
             relative_pos(col.x, y, col.y, H_SIZE, &hx, &_hy, &hz, &lx, &ly, &lz);
 
-            int index = zxy_index_l(lx, ly, lz, H_SIZE);
+            int index = u_index_zxy(lx, ly, lz, H_SIZE);
             struct hunk *h = alloc_hunk(w, hx, hz);
             alloc_chunk(w, col.x, y, col.y, h, index);
         }
@@ -467,7 +477,8 @@ bool world_is_working(struct world *w) {
 }
 
 void world_draw(struct world *w, struct cam *cam, GLuint program, GLuint atlas, int atlas_depth) {
-    worldrnd_clear(&w->rnd);
+    // worldrnd_clear(&w->rnd);
+    mesh_batch_clear_commands(w->batch);
 
     for (int i = 0; i < w->chunk_count; i++) {
         struct chunk *c = w->chunks[i];
@@ -475,20 +486,50 @@ void world_draw(struct world *w, struct cam *cam, GLuint program, GLuint atlas, 
             continue;
 
         if (cam_aabb_in_view(cam, c->min, c->max)) {
-            worldrnd_queue_chunk(&w->rnd, c);
+         //   worldrnd_queue_chunk(&w->rnd, c);
+
+            struct mesh_quad *ptr = mesh_batch_handle_ptr(&c->mesh_handle);
+            struct draw_command2 cmd = {
+                .baseInstance = 0,
+                .instanceCount = 1,
+                .first = mesh_batch_calculate_offset(w->batch, &c->mesh_handle, sizeof(struct mesh_quad), 6),
+                .count = c->quad_count * 6,
+            };
+
+            struct per_chunk_data2 data = {
+                .x = c->pos.x * C_SIZE,
+                .y = c->pos.y * C_SIZE,
+                .z = c->pos.z * C_SIZE,
+                .tint = C32_CLEAR,
+            };
+
+            mesh_batch_add_command(w->batch, &cmd, &data);
             dbg_aabb(c->min, c->max, C32_WHITE);
         }
     }
 
-    dbg_enable_fade(false);
+    dbg_fade(false);
     for (int i = 0; i < w->hunk_count; i++) {
         struct hunk *h = w->hunks[i];
         vec3 hmin = {h->x * HW_SIZE, 0, h->z * HW_SIZE};
         vec3 hmax = {hmin.x + HW_SIZE, H_SIZE * C_SIZE, hmin.z + HW_SIZE};
         dbg_aabb(hmin, hmax, C32_GREEN);
     }
-    dbg_enable_fade(true);
-    worldrnd_draw(&w->rnd, cam, program, atlas, atlas_depth);
+    dbg_fade(true);
+
+    // worldrnd_draw(&w->rnd, cam, program, atlas, atlas_depth);
+
+    glUseProgram(program);
+    glBindTextureUnit(0, atlas);
+    glUniformMatrix4fv(glGetUniformLocation(program, "vp"), 1, GL_FALSE, cam_view_proj_ptr(cam));
+    glUniform1ui(glGetUniformLocation(program, "atlas_depth"), (u32)atlas_depth);
+
+    static GLuint empty_vao = GL_NONE;
+    if (empty_vao == GL_NONE)
+        glGenVertexArrays(1, &empty_vao);
+    glBindVertexArray(empty_vao);
+
+    mesh_batch_multidraw(w->batch, 0, 1);
 }
 
 bool world_trace(struct world *w, vec3 ro, vec3 rd, float max_distance, struct world_hit *hit) {
@@ -591,7 +632,7 @@ static void validate_right_pos_in_hunk(struct world *w, struct chunk *c) {
         printf("Chunk (%d, %d, %d) hunk (%d, %d) not found\n", c->pos.x, c->pos.y, c->pos.z, hx, hz);
         return;
     }
-    int index = zxy_index_l(lx, ly, lz, H_SIZE);
+    int index = u_index_zxy(lx, ly, lz, H_SIZE);
     if (hunk->chunks[index] != c) {
         printf("Chunk (%d, %d, %d) not found in its hunk (%d, %d) at index (%d)\n", c->pos.x, c->pos.y, c->pos.z, hx, hz, index);
     }
