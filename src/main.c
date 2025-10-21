@@ -295,7 +295,7 @@ int main() {
 }
 
 static void glfw_error_cb(int error, const char *description) {
-    fprintf(stderr, "[GLFW] %i: %s", error, description);
+    fprintf(stderr, "[GLFW] %i: %s\n", error, description);
 }
 
 static void glfw_key_callback(GLFWwindow *window, int key, int scancode, int action, int mods) {

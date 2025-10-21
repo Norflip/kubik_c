@@ -30,7 +30,6 @@ bool cam_aabb_in_view (const struct cam *cam, vec3 min, vec3 max);
 
 mat4 cam_view_proj(struct cam *cam);
 float *cam_view_proj_ptr(struct cam *cam);
-
 void cam_fps_update(struct cam *cam, void *window, double dt);
 
 #endif
