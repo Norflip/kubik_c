@@ -19,20 +19,30 @@
 #include "world.h"
 
 #define DEFAULT_WINDOW_FACTOR_HEIGHT 0.9f
-// #define DEFAULT_ASPECT_RATIO (4.0f / 3.0f)
-#define DEFAULT_ASPECT_RATIO (16.0f / 9.0f)
+#define DEFAULT_ASPECT_RATIO (4.0f / 3.0f)
+// #define DEFAULT_ASPECT_RATIO (16.0f / 9.0f)
+#define MSAA_SAMPLES 4
 
 static GLFWwindow *window;
 static int window_width, window_height;
 static bool draw_wireframe = false;
 static bool draw_lines = true;
 static bool vsync = true;
+static bool msaa_enabled = true;
 
 static struct world world;
 
 static void glfw_error_cb(int error, const char *description);
 static void glfw_key_callback(GLFWwindow *window, int key, int scancode, int action, int mods);
 static void GLAPIENTRY gl_debug_callback(GLenum source, GLenum type, GLuint id, GLenum severity, GLsizei length, const GLchar *message, const void *userParam);
+
+static inline char *get_title(void) {
+#if KU_DEBUG
+    return "kubik [debug]";
+#else
+    return "kubik";
+#endif
+}
 
 int main() {
 
@@ -50,18 +60,13 @@ int main() {
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 6);
     glfwWindowHint(GLFW_RESIZABLE, GL_FALSE);
+    glfwWindowHint(GLFW_SAMPLES, MSAA_SAMPLES); // MSAA
 
     const GLFWvidmode *mode = glfwGetVideoMode(glfwGetPrimaryMonitor());
     window_height = mode->height * DEFAULT_WINDOW_FACTOR_HEIGHT;
     window_width = window_height * DEFAULT_ASPECT_RATIO;
 
-#if KU_DEBUG
-    const char *title = "kubik [debug]";
-#else
-    const char *title = "kubik";
-#endif
-
-    window = glfwCreateWindow(window_width, window_height, title, NULL, NULL);
+    window = glfwCreateWindow(window_width, window_height, get_title(), NULL, NULL);
     if (!window) {
         fprintf(stderr, "failed to create a glfw window");
         glfwTerminate();
@@ -70,7 +75,6 @@ int main() {
 
     glfwMakeContextCurrent(window);
     glfwSwapInterval(vsync ? 1 : 0);
-    glfwWindowHint(GLFW_RESIZABLE, GL_FALSE);
     glfwSetWindowSizeLimits(window, window_width, window_height, window_width, window_height);
     glfwSetKeyCallback(window, glfw_key_callback);
 
@@ -80,6 +84,11 @@ int main() {
         glfwTerminate();
         return EXIT_FAILURE;
     }
+
+    int samples;
+    glGetIntegerv(GL_MAX_SAMPLES, &samples);
+    printf("Max MSAA samples supported: %d\n", samples);
+    printf("Requested MSAA samples: %d\n", MSAA_SAMPLES);
 
     glEnable(GL_DEBUG_OUTPUT);
     glEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS);
@@ -97,7 +106,6 @@ int main() {
     // setup imgui
     igCreateContext(NULL);
     ImGuiIO *ioptr = igGetIO();
-    // ioptr->ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
     ioptr->IniFilename = NULL;
     igStyleCustomRound();
 
@@ -106,7 +114,7 @@ int main() {
 
     bool showDemoWindow = true;
     bool showAnotherWindow = false;
-    ImVec4 clearColor = {0.4f, 0.3f, 0.5f, 1.0f}; // Dark blueish background color
+    ImVec4 clearColor = {0.4f, 0.3f, 0.5f, 1.0f};
 
     double start_time = glfwGetTime();
     double prev_frame = glfwGetTime();
@@ -182,6 +190,10 @@ int main() {
         glEnable(GL_DEPTH_TEST);
         glEnable(GL_CULL_FACE);
         glCullFace(GL_BACK);
+        if (msaa_enabled)
+            glEnable(GL_MULTISAMPLE);
+        else
+            glDisable(GL_MULTISAMPLE);
 #if 1
         glClearColor(clearColor.x, clearColor.y, clearColor.z, clearColor.w);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -191,8 +203,6 @@ int main() {
 
         glViewport(0, 0, window_width, window_height);
         glPolygonMode(GL_FRONT_AND_BACK, draw_wireframe ? GL_LINE : GL_FILL);
-
-        // tmp_world_draw(&world, &camera, chunk_program, chunk_atlas, atlas_depth);
         world_draw(&world, &camera, chunk_program, chunk_atlas, atlas_depth);
 
 #pragma region DebugUI
@@ -205,6 +215,7 @@ int main() {
             igText("wireframe: %s (F1 to toggle)", draw_wireframe ? "[ON]" : "[OFF]");
             igText("vsync: %s (F2 to toggle)", vsync ? "[ON]" : "[OFF]");
             igText("debug lines: %s (F3 to toggle)", draw_lines ? "[ON]" : "[OFF]");
+            igText("MSAA: %s (F4 to toggle)", msaa_enabled ? "[ON]" : "[OFF]");
             igText("Validate world [F8]");
 
             igSeparatorText("Player");
@@ -215,12 +226,13 @@ int main() {
 
             igSeparatorText("Raycast");
             if (hit.did_hit) {
-                igText("hit block: %s [%i]", block_name(hit.block), (int)hit.block);
-                igText("hit pos: (%d, %d, %d) local (%d, %d, %d)", hit.pos.x, hit.pos.y, hit.pos.z, hit.pos.x % C_SIZE, hit.pos.y % C_SIZE, hit.pos.z % C_SIZE);
-                igText("hit normal: (%d, %d, %d)", hit.normal.x, hit.normal.y, hit.normal.z);
-                igText("hit distance: %.1f", hit.distance);
+                igText("block: %s [%i]", block_name(hit.block), (int)hit.block);
+                igText("pos: (%d, %d, %d) local (%d, %d, %d)", hit.pos.x, hit.pos.y, hit.pos.z, hit.pos.x % C_SIZE, hit.pos.y % C_SIZE, hit.pos.z % C_SIZE);
+                igText("normal: (%d, %d, %d)", hit.normal.x, hit.normal.y, hit.normal.z);
             } else {
-                igText("No hit");
+                igText("block: No hit");
+                igText("pos: -");
+                igText("normal: -");
             }
 
             igSeparatorText("World");
@@ -239,29 +251,7 @@ int main() {
             igText("Hunk Count: %d", world.hunk_count);
 
             igSeparatorText("Renderer");
-            struct gfx_stats stats = gfx_get_stats();
-            igText("Samples Passed: %llu", stats.samples_passed);
-            igText("Overdraw Ratio: %.2fx", stats.overdraw_ratio);
-
-            // igText("Draw Calls: %d", world.rnd.draw_count);
-            // igText("Draw Commands: %d", world.rnd.added_cmds_count);
-
-            GLint total_mem = 0, avail_mem = 0;
-            float pressure_ratio = 0.0f;
-            igSeparatorText("GPU Memory");
-            if (gl_get_gpu_memory_info(&total_mem, &avail_mem, &pressure_ratio)) {
-                igText("Total:     %d MB", total_mem / 1024);
-                igText("Used:      %d MB", (total_mem - avail_mem) / 1024);
-                igText("Free:      %d MB", avail_mem / 1024);
-                igText("Pressure:  %.1f%%", pressure_ratio * 100.0f);
-            } else {
-                igText("Unable to get GPU memory info");
-            }
-
-            // for (int i = 0; i < world.hunk_count; i++) {
-            //   struct hunk *h = world.hunks[i];
             mesh_batch_t *batch = world.batch;
-
             char str_id[64];
             snprintf(str_id, sizeof(str_id), "buf_%d", 0);
             if (igTreeNode_StrStr(str_id, "buffer %d", 0)) {
@@ -274,7 +264,6 @@ int main() {
                 igText("  Last Alloc: %d", batch->last_alloc_word);
                 igTreePop();
             }
-            // }
         }
         igEnd();
 #endif
@@ -319,6 +308,15 @@ static void glfw_key_callback(GLFWwindow *window, int key, int scancode, int act
 
     if (action == GLFW_PRESS && key == GLFW_KEY_F3) {
         draw_lines = !draw_lines;
+    }
+
+    if (action == GLFW_PRESS && key == GLFW_KEY_F4) {
+        msaa_enabled = !msaa_enabled;
+        if (msaa_enabled) {
+            printf("MSAA Enabled\n");
+        } else {
+            printf("MSAA Disabled\n");
+        }
     }
 
     if (action == GLFW_PRESS && key == GLFW_KEY_F8) {

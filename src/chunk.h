@@ -2,11 +2,11 @@
 #define CHUNK_H
 #include "block.h"
 #include "maf.h"
+#include "mesh.h"
 #include "thread.h"
 #include "utils.h"
 #include <glad/gl.h>
 #include <stdbool.h>
-#include "mesh.h"
 
 #define C_SIZE 32
 #define C_SIZE3 (C_SIZE * C_SIZE * C_SIZE)
@@ -27,6 +27,11 @@ enum chunk_flag {
     CHUNK_FLAG_ONLY_DATA = 1 << 1,
 };
 
+struct instance_data {
+    int x, y, z;
+    col32_t tint;
+};
+
 typedef struct {
     int x, y, z;
 } chunk_pos_t;
@@ -38,7 +43,7 @@ struct chunk {
     enum chunk_state state;
     enum chunk_flag flags;
 
-    block_t *blocks; 
+    block_t *blocks;
 
     int fill_count; // excludes the padded blocks
     struct chunk *neighbours[6];

@@ -168,7 +168,7 @@ static struct chunk *alloc_chunk(struct world *w, int x, int y, int z, struct hu
     return c;
 }
 
-static void *m_test_worker(void *arg) {
+static void *worker_func(void *arg) {
     struct world *w = (struct world *)arg;
     while (!w->initialized) {
         printf("waiting for world to initialize...\n");
@@ -205,7 +205,7 @@ static void gen_chunk_mesh_fn(struct chunk *c, struct world *w, struct work *sel
     size_t quad_count = chunk_generate_mesh_data(c, quads);
 
     if (quad_count > 0) {
-       // worldrnd_upload(&w->rnd, c, quads, quad_count * sizeof(struct mesh_quad));
+        // worldrnd_upload(&w->rnd, c, quads, quad_count * sizeof(struct mesh_quad));
         if (!mesh_batch_alloc(w->batch, quads, quad_count * sizeof(struct mesh_quad), &c->mesh_handle)) {
             fprintf(stderr, "gen_chunk_mesh_fn: failed to allocate mesh batch for chunk (%d, %d, %d)\n", c->pos.x, c->pos.y, c->pos.z);
         }
@@ -296,11 +296,6 @@ static void set_block_internal(struct world *w, struct chunk *c, int lx, int ly,
     }
 }
 
-struct per_chunk_data2 {
-    int x, y, z;
-    col32_t tint;
-};
-
 void world_init(struct world *w, int seed, int num_worker_threads) {
     memset(w, 0, sizeof(struct world));
 
@@ -323,9 +318,9 @@ void world_init(struct world *w, int seed, int num_worker_threads) {
         exit(EXIT_FAILURE);
     }
 
-    //worldrnd_init(&w->rnd, H_SIZE3);
+    // worldrnd_init(&w->rnd, H_SIZE3);
 
-    w->batch = mesh_batch_init("chunk_mesh_batch", MB(32), KB(2), H_SIZE3, sizeof(struct per_chunk_data2));
+    w->batch = mesh_batch_init("chunk_mesh_batch", MB(32), KB(2), H_SIZE3, sizeof(struct instance_data));
 
     // work queue
     w->work_heap_cap = 512;
@@ -333,14 +328,12 @@ void world_init(struct world *w, int seed, int num_worker_threads) {
     w->work_heap_count = 0;
     mutex_init(&w->work_lock);
     cond_init(&w->work_cond);
-
     printf("World initialized with seed %d\n", seed);
-    // thrd_init(&w->test_worker_thrd, m_test_worker, w);
 
     w->num_worker_threads = num_worker_threads;
     thread_t thread;
     for (int i = 0; i < w->num_worker_threads; i++) {
-        thread_init(&thread, m_test_worker, w);
+        thread_init(&thread, worker_func, w);
         thread_detach(thread);
     }
 
@@ -486,8 +479,6 @@ void world_draw(struct world *w, struct cam *cam, GLuint program, GLuint atlas, 
             continue;
 
         if (cam_aabb_in_view(cam, c->min, c->max)) {
-         //   worldrnd_queue_chunk(&w->rnd, c);
-
             struct mesh_quad *ptr = mesh_batch_handle_ptr(&c->mesh_handle);
             struct draw_command2 cmd = {
                 .baseInstance = 0,
@@ -496,7 +487,7 @@ void world_draw(struct world *w, struct cam *cam, GLuint program, GLuint atlas, 
                 .count = c->quad_count * 6,
             };
 
-            struct per_chunk_data2 data = {
+            struct instance_data data = {
                 .x = c->pos.x * C_SIZE,
                 .y = c->pos.y * C_SIZE,
                 .z = c->pos.z * C_SIZE,
@@ -516,8 +507,6 @@ void world_draw(struct world *w, struct cam *cam, GLuint program, GLuint atlas, 
         dbg_aabb(hmin, hmax, C32_GREEN);
     }
     dbg_fade(true);
-
-    // worldrnd_draw(&w->rnd, cam, program, atlas, atlas_depth);
 
     glUseProgram(program);
     glBindTextureUnit(0, atlas);
