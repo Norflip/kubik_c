@@ -7,7 +7,7 @@
 
 #define FLUSH_INSTANTLY 0
 
-struct draw_command2 {
+struct draw_command {
     GLuint count;
     GLuint instanceCount;
     GLuint first;
@@ -37,7 +37,7 @@ struct mesh_batch {
     u64 items_cap;
     // draw commands
     GLuint cmd_buf;
-    struct draw_command2 *cmd_ptr;
+    struct draw_command *cmd_ptr;
     // per object data
     GLuint obj_buf;
     void *obj_ptr;
@@ -60,7 +60,7 @@ mesh_batch_t *mesh_batch_init(const char *name, u64 buffer_size, u64 page_size, 
 bool mesh_batch_alloc(mesh_batch_t *batch, void *data, u64 size, mesh_handle_t *handle);
 // bool mesh_batch_realloc(mesh_batch_t *batch, mesh_handle_t *handle, void *new_data, u64 new_size);
 bool mesh_batch_free(mesh_batch_t *batch, mesh_handle_t *handle);
-void mesh_batch_add_command(mesh_batch_t *batch, const struct draw_command2 *cmd, const void *object_data);
+void mesh_batch_add_command(mesh_batch_t *batch, const struct draw_command *cmd, const void *object_data);
 void mesh_batch_clear_commands(mesh_batch_t *batch);
 bool mesh_batch_handle_is_valid(const mesh_handle_t *handle);
 void *mesh_batch_handle_ptr(const mesh_handle_t *handle);

@@ -4,9 +4,9 @@
 #include "chunk.h"
 #include "gfx.h"
 #include "maf.h"
+#include "mesh.h"
 #include "thread.h"
 #include "utils.h"
-#include "mesh.h"
 
 #define H_SIZE 16
 #define H_SIZE2 (H_SIZE * H_SIZE)
@@ -19,6 +19,10 @@ struct hunk {
     struct chunk *chunks[H_SIZE3];
     int chunk_count;
     uint16_t height_map[HW_SIZE2];
+
+    // noise maps
+    uint8_t rain_map[HW_SIZE2];
+    uint8_t temp_map[HW_SIZE2];
 };
 
 struct work;
@@ -33,7 +37,7 @@ struct world {
     struct hunk **hunks;
     int hunk_count, hunk_cap;
 
-    mesh_batch_t* batch;
+    mesh_batch_t *batch;
     struct work *work_heap;
     size_t work_heap_count, work_heap_cap;
     mutex_t work_lock;

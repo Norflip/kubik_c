@@ -125,8 +125,8 @@ mesh_batch_t *mesh_batch_init(const char *name, u64 buffer_size, u64 page_size, 
 
     // command buffer
     glCreateBuffers(1, &batch->cmd_buf);
-    glNamedBufferStorage(batch->cmd_buf, sizeof(struct draw_command2) * max_items, NULL, storage_flags);
-    batch->cmd_ptr = glMapNamedBufferRange(batch->cmd_buf, 0, sizeof(struct draw_command2) * max_items, mapping_flags);
+    glNamedBufferStorage(batch->cmd_buf, sizeof(struct draw_command) * max_items, NULL, storage_flags);
+    batch->cmd_ptr = glMapNamedBufferRange(batch->cmd_buf, 0, sizeof(struct draw_command) * max_items, mapping_flags);
     set_object_label(batch->cmd_buf, "%s_cmd_buf", name);
 
     // per instance data
@@ -140,8 +140,7 @@ mesh_batch_t *mesh_batch_init(const char *name, u64 buffer_size, u64 page_size, 
 }
 
 bool mesh_batch_alloc(mesh_batch_t *batch, void *data, u64 size, mesh_handle_t *handle) {
-    memset(handle, 0, sizeof(mesh_handle_t));
-    if (!batch || !data)
+    if (!batch || !data || !handle)
         return false;
 
     if (handle->valid) {
@@ -149,8 +148,15 @@ bool mesh_batch_alloc(mesh_batch_t *batch, void *data, u64 size, mesh_handle_t *
         return false;
     }
 
+    memset(handle, 0, sizeof(mesh_handle_t));
+
     if (size == 0) {
         fprintf(stderr, "mesh_batch_alloc: cannot allocate 0 bytes\n");
+        return false;
+    }
+
+    if(batch->free_pages == 0) {
+        fprintf(stderr, "mesh_batch_alloc: no free pages available\n");
         return false;
     }
 
@@ -219,7 +225,7 @@ bool mesh_batch_free(mesh_batch_t *batch, mesh_handle_t *handle) {
     return true;
 }
 
-void mesh_batch_add_command(mesh_batch_t *batch, const struct draw_command2 *cmd, const void *object_data) {
+void mesh_batch_add_command(mesh_batch_t *batch, const struct draw_command *cmd, const void *object_data) {
     if (batch->items_added >= batch->items_cap) {
         fprintf(stderr, "mesh_batch_add_command: command buffer full (%zu)\n", batch->items_cap);
         return;
@@ -228,7 +234,7 @@ void mesh_batch_add_command(mesh_batch_t *batch, const struct draw_command2 *cmd
     mutex_lock(&batch->lock);
 
     // batch->cmd_ptr[batch->items_added] = cmd;
-    memcpy(&batch->cmd_ptr[batch->items_added], cmd, sizeof(struct draw_command2));
+    memcpy(&batch->cmd_ptr[batch->items_added], cmd, sizeof(struct draw_command));
     if (object_data && batch->obj_ptr)
         memcpy((char *)batch->obj_ptr + batch->obj_stride * batch->items_added, object_data, batch->obj_stride);
 
@@ -265,7 +271,7 @@ void mesh_batch_multidraw(mesh_batch_t *batch, GLuint buffer_loc, GLuint data_lo
     mutex_lock(&batch->lock);
 
     glFlushMappedNamedBufferRange(batch->obj_buf, 0, batch->obj_stride * batch->items_added);
-    glFlushMappedNamedBufferRange(batch->cmd_buf, 0, sizeof(struct draw_command2) * batch->items_added);
+    glFlushMappedNamedBufferRange(batch->cmd_buf, 0, sizeof(struct draw_command) * batch->items_added);
 
 #if !FLUSH_INSTANTLY
     for (int i = 0; i < batch->flush_range_count; i++) {

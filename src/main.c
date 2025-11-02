@@ -36,16 +36,7 @@ static void glfw_error_cb(int error, const char *description);
 static void glfw_key_callback(GLFWwindow *window, int key, int scancode, int action, int mods);
 static void GLAPIENTRY gl_debug_callback(GLenum source, GLenum type, GLuint id, GLenum severity, GLsizei length, const GLchar *message, const void *userParam);
 
-static inline char *get_title(void) {
-#if KU_DEBUG
-    return "kubik [debug]";
-#else
-    return "kubik";
-#endif
-}
-
 int main() {
-
     printf("Hello, from Kubik!\n");
 #if KU_DEBUG
     printf("Debug build\n");
@@ -66,7 +57,14 @@ int main() {
     window_height = mode->height * DEFAULT_WINDOW_FACTOR_HEIGHT;
     window_width = window_height * DEFAULT_ASPECT_RATIO;
 
-    window = glfwCreateWindow(window_width, window_height, get_title(), NULL, NULL);
+
+#if KU_DEBUG
+    const char* title = "kubik [debug]";
+#else
+    const char* title = "kubik";
+#endif
+
+    window = glfwCreateWindow(window_width, window_height, title, NULL, NULL);
     if (!window) {
         fprintf(stderr, "failed to create a glfw window");
         glfwTerminate();
