@@ -940,6 +940,10 @@ static void gen_chunk_base(struct world *w, struct chunk *c) {
                 set_block_internal(w, c, x, y, z, block);
 #endif
 
+struct local_pos {
+    int x, y, z;
+    struct chunk *c;
+};
 
 void local_pos_up(struct local_pos *it) {
     it->y++;
