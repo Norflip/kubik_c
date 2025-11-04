@@ -179,7 +179,7 @@ bool chunk_set_block(struct chunk *c, int x, int y, int z, block_t value) {
         c->fill_count++;
     }
 
-    struct block_state new_state = {.type = value, .light = block_default_light(value)};
+    struct block_state new_state = {.type = value, .light = 0xFF};
     c->blocks[index] = new_state;
     c->dirty = true;
     set_padded_blockstate(c, x, y, z, new_state);
@@ -301,10 +301,6 @@ size_t chunk_generate_mesh_data(struct chunk *c, void *buffer) {
     for (int y = 0; y < C_SIZE; y++) {
         for (int x = 0; x < C_SIZE; x++) {
             for (int z = 0; z < C_SIZE; z++) {
-                u32 light = 0;
-                if (x == 0 || y == 0 || z == 0)
-                    light = 1;
-
                 block_t block = chunk_get_block(c, x, y, z);
                 if (!block_is_solid(block))
                     continue;
@@ -318,7 +314,7 @@ size_t chunk_generate_mesh_data(struct chunk *c, void *buffer) {
                     if (block_create_face(block, face, chunk_get_block(c, ox, oy, oz))) {
                         bool flip = false;
                         get_face_ao(c, x, y, z, face, ao, &flip);
-                        struct mesh_quad quad = make_quad(x, y, z, face, block, light, ao, flip);
+                        struct mesh_quad quad = make_quad(x, y, z, face, block, 0xFF, ao, flip);
                         quads[added++] = quad;
                     }
                 }

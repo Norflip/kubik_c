@@ -47,6 +47,7 @@ static void pop_work(struct world *world, struct work *out) {
 }
 
 static void gen_chunk_base(struct world *w, struct chunk *c);
+static void gen_chunk_base_flatgrass(struct world *w, struct chunk *c);
 static void gen_chunk_surface(struct world *w, struct chunk *c);
 static void gen_chunk_caves(struct world *w, struct chunk *c);
 
@@ -220,7 +221,11 @@ static void gen_chunk_data_fn(struct chunk *c, struct world *w, struct work *sel
     struct chunk *chunk = top_chunk;
 
     for (int y = self->column.max_y; y >= self->column.min_y && chunk; y--) {
-        gen_chunk_base(w, chunk);
+        if (w->flatgrass)
+            gen_chunk_base_flatgrass(w, chunk);
+        else
+            gen_chunk_base(w, chunk);
+
         chunk = chunk->neighbours[DIR_DOWN];
     }
 
@@ -294,11 +299,12 @@ static void set_block_internal(struct world *w, struct chunk *c, int lx, int ly,
     }
 }
 
-void world_init(struct world *w, int seed, int num_worker_threads) {
+void world_init(struct world *w, int seed, int num_worker_threads, bool flatgrass) {
     memset(w, 0, sizeof(struct world));
 
     const int SIZE = 256;
     w->seed = seed;
+    w->flatgrass = flatgrass;
 
     w->chunk_count = 0;
     w->chunk_cap = SIZE * SIZE * H_SIZE;
@@ -789,6 +795,24 @@ static void gen_chunk_base(struct world *w, struct chunk *c) {
                     block = BLK_STONE;
                 }
 
+                set_block_internal(w, c, x, y, z, block);
+            }
+        }
+    }
+}
+
+static void gen_chunk_base_flatgrass(struct world *w, struct chunk *c) {
+    const int flatgrass_height = 30;
+    for (int z = 0; z < C_SIZE; z++) {
+        for (int x = 0; x < C_SIZE; x++) {
+            for (int y = 0; y < C_SIZE; y++) {
+                block_t block = BLK_AIR;
+                int wy = y + c->pos.y * C_SIZE;
+                if (wy == 0) {
+                    block = BLK_BASE;
+                } else if (wy < flatgrass_height) {
+                    block = BLK_STONE;
+                }
                 set_block_internal(w, c, x, y, z, block);
             }
         }

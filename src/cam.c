@@ -1,7 +1,7 @@
 #include "cam.h"
+#include "utils.h"
 #include <GLFW/glfw3.h>
 #include <string.h>
-#include "utils.h"
 
 #define FPS_MOUSE_SENSITIVITY 0.05f
 #define FPS_BOOST_MULTIPLIER 6.0f
@@ -111,20 +111,12 @@ void cam_update(struct cam *cam) {
 }
 
 void cam_screen_to_ray(struct cam *cam, int x, int y, vec3 *out_origin, vec3 *out_dir) {
-#if 0
-    float ndc_x = (2.0f * x) / (float)cam->width - 1.0f;
-    float ndc_y = 1.0f - (2.0f * y) / (float)cam->height;
+    if (cam->mouse_captured) {
+        *out_origin = cam->pos;
+        *out_dir = cam_relative_vec(cam, V3_FORWARD);
+        return;
+    }
 
-    vec4 ray_clip = (vec4){ndc_x, ndc_y, -1.0f, 1.0f};
-    vec4 ray_eye = m4_mulv4(m4_inverse(cam->proj), ray_clip);
-    ray_eye = (vec4){ray_eye.x, ray_eye.y, -1.0f, 0.0f};
-
-    vec3 ray_world = quat_mulv(cam->rot, (vec3){ray_eye.x, ray_eye.y, ray_eye.z});
-    ray_world = v3_normalize(ray_world);
-
-    *out_origin = cam->pos;
-    *out_dir = ray_world;
-#else
     float ndc_x = (2.0f * x) / (float)cam->width - 1.0f;
     float ndc_y = (2.0f * y) / (float)cam->height - 1.0f;
 
@@ -134,13 +126,11 @@ void cam_screen_to_ray(struct cam *cam, int x, int y, vec3 *out_origin, vec3 *ou
 
     vec3 ray_world = quat_mulv(cam->rot, (vec3){ray_eye.x, ray_eye.y, ray_eye.z});
     ray_world = v3_normalize(ray_world);
-
     // Flip the entire ray direction
     ray_world = v3_scale(ray_world, -1.0f);
 
     *out_origin = cam->pos;
     *out_dir = ray_world;
-#endif
 }
 
 bool cam_aabb_in_view(const struct cam *cam, vec3 min, vec3 max) {
@@ -181,7 +171,6 @@ float *cam_view_proj_ptr(struct cam *cam) {
 }
 
 void cam_fps_update(struct cam *cam, void *window, double dt) {
-    static bool mouse_captured = false;
     static float lastX = 0, lastY = 0;
     static float yaw = 0, pitch = 0;
     static bool first_frame = false;
@@ -192,11 +181,11 @@ void cam_fps_update(struct cam *cam, void *window, double dt) {
     double xpos, ypos;
     glfwGetCursorPos(window, &xpos, &ypos);
     if (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS) {
-        if (!mouse_captured) {
+        if (!cam->mouse_captured) {
             glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
             lastX = xpos;
             lastY = ypos;
-            mouse_captured = true;
+            cam->mouse_captured = true;
             if (!first_frame) {
                 vec3 forward = cam_relative_vec(cam, V3_FORWARD);
                 pitch = asinf(-forward.y);
@@ -209,9 +198,9 @@ void cam_fps_update(struct cam *cam, void *window, double dt) {
             lastX = xpos;
             lastY = ypos;
         }
-    } else if (mouse_captured) {
+    } else if (cam->mouse_captured) {
         glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
-        mouse_captured = false;
+        cam->mouse_captured = false;
         lastX = 0;
         lastY = 0;
     }

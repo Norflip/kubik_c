@@ -32,6 +32,7 @@ struct world {
     bool initialized;
     int seed;
     int num_worker_threads;
+    bool flatgrass; // should probably be a flag 
 
     struct chunk **chunks;
     int chunk_count, chunk_cap;
@@ -51,7 +52,7 @@ struct world_hit {
     bool did_hit;
 };
 
-void world_init(struct world *w, int seed, int num_worker_threads);
+void world_init(struct world *w, int seed, int num_worker_threads, bool flatgrass);
 void world_generate_initial(struct world *w, int load_radius);
 
 struct chunk *world_get_chunk(struct world *w, int x, int y, int z);

@@ -26,7 +26,7 @@
 static GLFWwindow *window;
 static int window_width, window_height;
 static bool draw_wireframe = false;
-static bool draw_lines = false;
+static bool draw_lines = true;
 static bool vsync = true;
 static bool msaa_enabled = true;
 
@@ -124,7 +124,7 @@ int main() {
     cam_set_transform(&camera, (vec3){8.0f, 110.0f, 8.0f}, quat_identity());
 
     memset(&world, 0, sizeof(struct world));
-    world_init(&world, 0, 4);
+    world_init(&world, 0, 4, true);
     world_generate_initial(&world, 12);
 
     // start time
@@ -134,20 +134,8 @@ int main() {
 
     GLuint chunk_program = load_program("chunk", asset_path("chunk.vs"), asset_path("chunk.fs"));
 
-    /*
-    const char *atlas_paths[] = {
-        asset_path("blocks/base.png"),       // 0
-        asset_path("blocks/stone.png"),      // 1
-        asset_path("blocks/dirt.png"),       // 2
-        asset_path("blocks/grass_top.png"),  // 3
-        asset_path("blocks/grass_side.png"), // 4
-        asset_path("blocks/sand.png"),       // 5
-    };
-    */
-
     int texture_count = 0;
-    const char** paths;
-    paths = block_texture_paths(&texture_count);
+    const char** paths = block_texture_paths(&texture_count);
 
     int atlas_depth = 0;
     GLuint chunk_atlas = load_atlas("atlas", paths, texture_count, 8, 8, 8, &atlas_depth);
@@ -168,6 +156,7 @@ int main() {
             // cursor screen pos
             double mouse_x, mouse_y;
             glfwGetCursorPos(window, &mouse_x, &mouse_y);
+
             cam_screen_to_ray(&camera, (int)mouse_x, (int)mouse_y, &ro, &rd);
             world_trace(&world, ro, rd, 100.0f, &hit);
         }

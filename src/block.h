@@ -49,12 +49,7 @@ static const char **block_texture_paths(int *out_count) {
 }
 
 static u32 block_default_light(block_t b) {
-    switch (b) {
-    case BLK_AIR:
-        return 0;
-    default:
-        return 0;
-    }
+    return 0;
 }
 
 static bool block_create_face(block_t b, int face, block_t n) {

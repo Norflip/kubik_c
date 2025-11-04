@@ -15,6 +15,7 @@ struct cam {
     mat4 view_proj;
     vec4 frustum[6];
     bool dirty;
+    bool mouse_captured;
 };
 
 void cam_initialize(struct cam *cam, int width, int height, float fov);
