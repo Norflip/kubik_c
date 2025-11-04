@@ -26,7 +26,7 @@
 static GLFWwindow *window;
 static int window_width, window_height;
 static bool draw_wireframe = false;
-static bool draw_lines = true;
+static bool draw_lines = false;
 static bool vsync = true;
 static bool msaa_enabled = true;
 
@@ -133,16 +133,23 @@ int main() {
 
     GLuint chunk_program = load_program("chunk", asset_path("chunk.vs"), asset_path("chunk.fs"));
 
+    /*
     const char *atlas_paths[] = {
         asset_path("blocks/base.png"),       // 0
         asset_path("blocks/stone.png"),      // 1
         asset_path("blocks/dirt.png"),       // 2
         asset_path("blocks/grass_top.png"),  // 3
         asset_path("blocks/grass_side.png"), // 4
+        asset_path("blocks/sand.png"),       // 5
     };
+    */
+
+    int texture_count = 0;
+    const char** paths;
+    paths = block_texture_paths(&texture_count);
 
     int atlas_depth = 0;
-    GLuint chunk_atlas = load_atlas("atlas", atlas_paths, 5, 8, 8, 5, &atlas_depth);
+    GLuint chunk_atlas = load_atlas("atlas", paths, texture_count, 8, 8, 8, &atlas_depth);
 
     vec3 ro, rd;
     struct world_hit hit = {0};

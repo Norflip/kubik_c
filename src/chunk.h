@@ -18,6 +18,8 @@
 struct mesh_quad {
     u32 pos_face; // 3*6 bits voxel pos + 3 bits face + (2*4) bits AO + 1 bit flipped = 30 bits, 2 bits remaining
     u32 texid;
+    u32 light;
+    u32 _padding;
 };
 
 enum chunk_state { C_STATE_EMPTY = 0, C_STATE_GENERATING, C_STATE_GENERATED, C_STATE_MESHING, C_STATE_MESHED };
@@ -28,42 +30,36 @@ enum chunk_flag {
 };
 
 struct instance_data {
-    int x, y, z;
+    ivec3 pos;
     col32_t tint;
 };
 
-typedef struct {
-    int x, y, z;
-} chunk_pos_t;
+struct block_state {
+    block_t type;
+    u32 light;
+};
 
 struct chunk {
     int _canary;
-    chunk_pos_t pos;
+    ivec3 pos;
     vec3 min, max;
     enum chunk_state state;
     enum chunk_flag flags;
 
-    block_t *blocks;
-
+    struct block_state *blocks;
     int fill_count; // excludes the padded blocks
     struct chunk *neighbours[6];
 
     // rendering stuff
+    mesh_handle_t mesh_handle;
     col32_t tint;
     int quad_count;
     int dirty;
 
-    // move into a struct?
-    u64 mdi_page;
-    u64 mdi_size;
-    void *mdiptr;
-    bool mdi_valid;
-
-    mesh_handle_t mesh_handle;
     mutex_t lock;
 };
 
-void chunk_initialize(struct chunk *c, chunk_pos_t pos, enum chunk_flag flags);
+void chunk_initialize(struct chunk *c, ivec3 pos, enum chunk_flag flags);
 bool chunk_set_block(struct chunk *c, int x, int y, int z, block_t value);
 block_t chunk_get_block(struct chunk *c, int x, int y, int z);
 bool chunk_block_is_solid(struct chunk *c, int x, int y, int z);
@@ -74,8 +70,5 @@ uint32_t chunk_seed(struct chunk *c);
 void chunk_set_neighbour(struct chunk *c, struct chunk *neighbour, int face);
 size_t chunk_generate_mesh_data(struct chunk *c, void *buffer);
 size_t chunk_generate_face_mesh_data(struct chunk *c, int face, void *buffer);
-
-void chunk_lock(struct chunk *c);
-void chunk_unlock(struct chunk *c);
 
 #endif // CHUNK_H

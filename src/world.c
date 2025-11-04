@@ -208,7 +208,7 @@ static struct chunk *alloc_chunk(struct world *w, int x, int y, int z, struct hu
     }
 
     struct chunk *c = malloc(sizeof(struct chunk));
-    chunk_initialize(c, (chunk_pos_t){x, y, z}, 0);
+    chunk_initialize(c, (ivec3){x, y, z}, 0);
 
     w->chunks[w->chunk_count++] = c;
     hunk->chunks[index] = c;
@@ -536,9 +536,7 @@ void world_draw(struct world *w, struct cam *cam, GLuint program, GLuint atlas, 
             };
 
             struct instance_data data = {
-                .x = c->pos.x * C_SIZE,
-                .y = c->pos.y * C_SIZE,
-                .z = c->pos.z * C_SIZE,
+                .pos = iv3_scale(c->pos, C_SIZE),
                 .tint = C32_CLEAR,
             };
 
@@ -706,73 +704,12 @@ void validate_world(struct world *w) {
     printf("=== World validation complete ===\n");
 }
 
-#if 0
-#    define NUM_JUMPS 8
-#    define AXIS_STEPS (C_SIZE / NUM_JUMPS + 1)
-#    define SAMPLE_VOLUME (AXIS_STEPS * AXIS_STEPS * AXIS_STEPS)
-
-static inline float sample_noise(const float *buf, int x, int y, int z) {
-
-    assert(buf);
-    assert(x >= 0 && x < C_SIZE && y >= 0 && y < C_SIZE && z >= 0 && z < C_SIZE);
-
-    const int x0 = x / NUM_JUMPS;
-    const int y0 = y / NUM_JUMPS;
-    const int z0 = z / NUM_JUMPS;
-
-    // if we are on a direct spot than we don't need to interpolate
-    if (x % NUM_JUMPS == 0 && y % NUM_JUMPS == 0 && z % NUM_JUMPS == 0)
-        return buf[u_index_zxy(x0, y0, z0, AXIS_STEPS)];
-
-    const float sx = (float)(x % NUM_JUMPS) / NUM_JUMPS;
-    const float sy = (float)(y % NUM_JUMPS) / NUM_JUMPS;
-    const float sz = (float)(z % NUM_JUMPS) / NUM_JUMPS;
-
-    const int x1 = x0 + 1;
-    const int y1 = y0 + 1;
-    const int z1 = z0 + 1;
-    const float c000 = buf[u_index_zxy(x0, y0, z0, AXIS_STEPS)];
-    const float c100 = buf[u_index_zxy(x1, y0, z0, AXIS_STEPS)];
-    const float v00 = u_lerp(c000, c100, sx);
-
-    const float c010 = buf[u_index_zxy(x0, y1, z0, AXIS_STEPS)];
-    const float c110 = buf[u_index_zxy(x1, y1, z0, AXIS_STEPS)];
-    const float v10 = u_lerp(c010, c110, sx);
-
-    const float c001 = buf[u_index_zxy(x0, y0, z1, AXIS_STEPS)];
-    const float c101 = buf[u_index_zxy(x1, y0, z1, AXIS_STEPS)];
-    const float v01 = u_lerp(c001, c101, sx);
-
-    const float c011 = buf[u_index_zxy(x0, y1, z1, AXIS_STEPS)];
-    const float c111 = buf[u_index_zxy(x1, y1, z1, AXIS_STEPS)];
-    const float v11 = u_lerp(c011, c111, sx);
-
-    const float v0 = u_lerp(v00, v10, sy);
-    const float v1 = u_lerp(v01, v11, sy);
-    return u_lerp(v0, v1, sz);
-}
-
-static void sample_initial_noise(float *samples, struct chunk *c, fnl_state *state) {
-    for (int z = 0; z < AXIS_STEPS; z++) {
-        for (int x = 0; x < AXIS_STEPS; x++) {
-            for (int y = 0; y < AXIS_STEPS; y++) {
-                int dx = (c->pos.x * C_SIZE + (x * NUM_JUMPS));
-                int dy = (c->pos.y * C_SIZE + (y * NUM_JUMPS));
-                int dz = (c->pos.z * C_SIZE + (z * NUM_JUMPS));
-                int index = u_index_zxy(x, y, z, AXIS_STEPS);
-                samples[index] = fnlGetNoise3D(state, dx, dy, dz);
-            }
-        }
-    }
-}
-#else
-
-#    define NUM_JUMPS_XZ 8
-#    define NUM_JUMPS_Y 4
-#    define AXIS_STEPS_XZ (C_SIZE / NUM_JUMPS_XZ + 1)
-#    define AXIS_STEPS_Y (C_SIZE / NUM_JUMPS_Y + 1)
-#    define SAMPLE_VOLUME (AXIS_STEPS_XZ * AXIS_STEPS_Y * AXIS_STEPS_XZ)
-#    define axis_step_index(xi, yi, zi) ((zi) * AXIS_STEPS_XZ * AXIS_STEPS_Y + (xi) * AXIS_STEPS_Y + (yi))
+#define NUM_JUMPS_XZ 8
+#define NUM_JUMPS_Y 4
+#define AXIS_STEPS_XZ (C_SIZE / NUM_JUMPS_XZ + 1)
+#define AXIS_STEPS_Y (C_SIZE / NUM_JUMPS_Y + 1)
+#define SAMPLE_VOLUME (AXIS_STEPS_XZ * AXIS_STEPS_Y * AXIS_STEPS_XZ)
+#define axis_step_index(xi, yi, zi) ((zi) * AXIS_STEPS_XZ * AXIS_STEPS_Y + (xi) * AXIS_STEPS_Y + (yi))
 
 static inline float sample_noise(const float *buf, int x, int y, int z) {
 
@@ -828,8 +765,8 @@ static void sample_initial_noise(float *samples, struct chunk *c, fnl_state *sta
         }
     }
 }
-#endif
-static void gen_chunk_base2(struct world *w, struct chunk *c) {
+
+static void gen_chunk_base(struct world *w, struct chunk *c) {
     fnl_state density_state = fnlCreateState(w->seed);
     density_state.noise_type = FNL_NOISE_OPENSIMPLEX2;
     density_state.fractal_type = FNL_FRACTAL_FBM;
@@ -845,7 +782,7 @@ static void gen_chunk_base2(struct world *w, struct chunk *c) {
     squash_state.noise_type = FNL_NOISE_OPENSIMPLEX2;
     squash_state.frequency = 0.002f;
 
-    fnl_state height_state = fnlCreateState(w->seed + 2);    
+    fnl_state height_state = fnlCreateState(w->seed + 2);
     height_state.noise_type = FNL_NOISE_OPENSIMPLEX2;
     height_state.fractal_type = FNL_FRACTAL_RIDGED;
     height_state.octaves = 4;
@@ -874,8 +811,8 @@ static void gen_chunk_base2(struct world *w, struct chunk *c) {
             float temp = hunk_get_temperature(hunk, wx, wz);
             float rain = hunk_get_rainfall(hunk, wx, wz);
 
-          //  temp = 0.0f;
-         //   rain = 0.0f;
+            //  temp = 0.0f;
+            //   rain = 0.0f;
 
             float climate_height_mod = (1.0f - temp) * rain; // 0 to 1
             float adjusted_height_scale = height_scale * (0.5f + climate_height_mod);
@@ -911,88 +848,6 @@ static void gen_chunk_base2(struct world *w, struct chunk *c) {
         }
     }
 }
-static void gen_chunk_base(struct world *w, struct chunk *c) {
-
-    gen_chunk_base2(w, c);
-    return;
-
-    fnl_state density_state = fnlCreateState(w->seed);
-    density_state.noise_type = FNL_NOISE_OPENSIMPLEX2;
-    density_state.fractal_type = FNL_FRACTAL_FBM;
-    density_state.octaves = 3;
-    density_state.lacunarity = 2.0f;
-    density_state.gain = 0.5f;
-    density_state.frequency = 0.01f;
-
-    float density_samples[SAMPLE_VOLUME];
-    sample_initial_noise(density_samples, c, &density_state);
-
-    fnl_state squash_state = fnlCreateState(w->seed + 1);
-    squash_state.noise_type = FNL_NOISE_OPENSIMPLEX2;
-    squash_state.frequency = 0.002f;
-
-    fnl_state height_state = fnlCreateState(w->seed + 2);
-    height_state.noise_type = FNL_NOISE_OPENSIMPLEX2;
-    height_state.fractal_type = FNL_FRACTAL_RIDGED;
-    height_state.octaves = 4;
-    height_state.lacunarity = 2.0f;
-    height_state.gain = 0.5f;
-    height_state.weighted_strength = 0.5f;
-    height_state.frequency = 0.002f;
-
-    const int base_world_height = 128;
-    const float min_squash = 0.5f; // Positive values only
-    const float max_squash = 8.0f; // Higher = more compression toward ground
-    const float height_scale = 64.0f;
-
-    const float min_height = base_world_height - height_scale;
-    const float max_height = base_world_height + height_scale;
-    const float height_range = max_height - min_height;
-    uint32_t seed = chunk_seed(c);
-
-    struct hunk *hunk = get_hunk_for_chunk(w, c);
-
-    for (int z = 0; z < C_SIZE; z++) {
-        for (int x = 0; x < C_SIZE; x++) {
-            int wx = x + c->pos.x * C_SIZE;
-            int wz = z + c->pos.z * C_SIZE;
-
-            float height_noise = fnlGetNoise2D(&height_state, wx, wz);
-            height_noise = (height_noise + 1.0f) * 0.5f; // 0 to 1
-            float terrain_height = base_world_height + (height_noise - 0.5f) * height_scale * 2.0f;
-
-            float squash_noise = fnlGetNoise2D(&squash_state, wx, wz);
-            squash_noise = (squash_noise + 1.0f) * 0.5f; // 0 to 1
-            float squash_factor = min_squash + (max_squash - min_squash) * squash_noise;
-
-            float temp = hunk_get_temperature(hunk, wx, wz);
-            float rain = hunk_get_rainfall(hunk, wx, wz);
-
-            for (int y = 0; y < C_SIZE; y++) {
-                int wy = y + c->pos.y * C_SIZE;
-                float height_normalized = (terrain_height - wy) / height_range;
-                float density_bias = height_normalized * squash_factor; //* 2.0f;
-                float density = sample_noise(density_samples, x, y, z);
-
-                block_t block = BLK_AIR;
-                if (wy == 0 || wy < rng_next(&seed) % 5) {
-                    block = BLK_BASE;
-                } else if (density + density_bias > 0.0f) {
-                    block = BLK_STONE;
-                }
-
-                set_block_internal(w, c, x, y, z, block);
-            }
-        }
-    }
-}
-
-#if 0
-                // simple terrain from just a test noise value
-                float height = base_world_height + (height_scale * rain);
-                block_t block = (wy < height) ? BLK_STONE : BLK_AIR;
-                set_block_internal(w, c, x, y, z, block);
-#endif
 
 struct lpos_iter {
     int x, y, z;

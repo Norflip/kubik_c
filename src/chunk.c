@@ -26,7 +26,7 @@ static bool on_border(int x, int y, int z) {
     assert(c != NULL);  \
     assert(c->_canary == C_CANARY)
 
-void chunk_initialize(struct chunk *c, chunk_pos_t pos, enum chunk_flag flags) {
+void chunk_initialize(struct chunk *c, ivec3 pos, enum chunk_flag flags) {
     memset(c, 0, sizeof(struct chunk));
     c->pos = pos;
     c->_canary = C_CANARY;
@@ -47,63 +47,56 @@ static struct chunk *get_neighbour(struct chunk *c, int face) {
     return c->neighbours[face];
 }
 
-static inline struct chunk *find_neighbor(struct chunk *chunk, int dx, int dy, int dz) {
+static inline struct chunk *find_neighbour(struct chunk *chunk, int dx, int dy, int dz) {
     struct chunk *current = chunk;
 
-    if (dx > 0) {
+    if (dx > 0)
         current = current->neighbours[DIR_RIGHT];
-    } else if (dx < 0) {
+    else if (dx < 0)
         current = current->neighbours[DIR_LEFT];
-    }
 
     if (!current)
         return NULL;
 
-    if (dy > 0) {
+    if (dy > 0)
         current = current->neighbours[DIR_UP];
-    } else if (dy < 0) {
+    else if (dy < 0)
         current = current->neighbours[DIR_DOWN];
-    }
+
     if (!current)
         return NULL;
 
-    if (dz > 0) {
+    if (dz > 0)
         current = current->neighbours[DIR_FRONT];
-    } else if (dz < 0) {
+    else if (dz < 0)
         current = current->neighbours[DIR_BACK];
-    }
 
     return current;
 }
 
-#define SUBCHUNK_INDEX(x, y, z) (((x) / SUBC_SIZEP) + (((y) / SUBC_SIZEP) * 2) + (((z) / SUBC_SIZEP) * 4))
-
-static bool try_alloc_block_data(struct chunk *c, block_t value) {
+static bool try_alloc_block_data(struct chunk *c) {
     ASSERT_CHUNK(c);
-    chunk_lock(c);
+    mutex_lock(&c->lock);
 
     if (c->blocks != NULL) {
-        chunk_unlock(c);
+
+        mutex_unlock(&c->lock);
+
         return true;
     }
 
-    if (value == BLK_AIR && c->blocks == NULL) {
-        chunk_unlock(c);
-        return false;
-    }
-
-    c->blocks = calloc(C_SIZEP3, sizeof(block_t));
+    c->blocks = calloc(C_SIZEP3, sizeof(struct block_state));
     if (c->blocks == NULL) {
         fprintf(stderr, "chunk_set_block: failed to allocate memory for chunk blocks\n");
-        chunk_unlock(c);
+        mutex_unlock(&c->lock);
         return false;
     }
 
-    chunk_unlock(c);
+    mutex_unlock(&c->lock);
     return true;
 }
 
-static void set_padded_block(struct chunk *c, int x, int y, int z, block_t value) {
+static void set_padded_blockstate(struct chunk *c, int x, int y, int z, struct block_state value) {
 
     if (!on_border(x, y, z))
         return;
@@ -153,10 +146,12 @@ static void set_padded_block(struct chunk *c, int x, int y, int z, block_t value
                 break; // -Z face
             }
 
-            if (try_alloc_block_data(n, value)) {
-                int idx = u_index_zxy(tx + 1, ty + 1, tz + 1, C_SIZEP);
-                n->blocks[idx] = value;
-                n->dirty = true;
+            if (value.type != BLK_AIR && c->blocks != NULL) {
+                if (try_alloc_block_data(n)) {
+                    int idx = u_index_zxy(tx + 1, ty + 1, tz + 1, C_SIZEP);
+                    n->blocks[idx] = value;
+                    n->dirty = true;
+                }
             }
         }
     }
@@ -172,21 +167,22 @@ bool chunk_set_block(struct chunk *c, int x, int y, int z, block_t value) {
     if (value == BLK_AIR && c->blocks == NULL)
         return true;
 
-    if (!try_alloc_block_data(c, value)) {
+    if (!try_alloc_block_data(c)) {
         return false;
     }
 
     const int index = u_index_zxy(x + 1, y + 1, z + 1, C_SIZEP);
-    block_t old_value = c->blocks[index];
+    block_t old_value = c->blocks[index].type;
     if (old_value != 0 && value == 0) {
         c->fill_count--;
     } else if (old_value == 0 && value != 0) {
         c->fill_count++;
     }
 
-    c->blocks[index] = value;
+    struct block_state new_state = {.type = value, .light = block_default_light(value)};
+    c->blocks[index] = new_state;
     c->dirty = true;
-    set_padded_block(c, x, y, z, value);
+    set_padded_blockstate(c, x, y, z, new_state);
     return true;
 }
 
@@ -196,11 +192,21 @@ block_t chunk_get_block(struct chunk *c, int x, int y, int z) {
         return BLK_AIR;
     if (c->blocks == NULL)
         return BLK_AIR;
-    return c->blocks[u_index_zxy(x + 1, y + 1, z + 1, C_SIZEP)];
+    return c->blocks[u_index_zxy(x + 1, y + 1, z + 1, C_SIZEP)].type;
 }
 
 bool chunk_block_is_solid(struct chunk *c, int x, int y, int z) {
     return chunk_get_block(c, x, y, z) != BLK_AIR;
+}
+
+bool chunk_set_light(struct chunk *c, int x, int y, int z, u32 value) {
+    ASSERT_CHUNK(c);
+    if (!inside(x, y, z)) {
+        fprintf(stderr, "chunk_set_light: position (%d, %d, %d) is out of bounds in chunk (%d, %d, %d)\n", x, y, z, c->pos.x, c->pos.y, c->pos.z);
+        return false;
+    }
+
+    return false;
 }
 
 ivec3 chunk_world_pos(struct chunk *c) {
@@ -238,12 +244,13 @@ void chunk_set_neighbour(struct chunk *c, struct chunk *neighbour, int face) {
         neighbour->neighbours[opposite_dir(face)] = c;
 }
 
-static struct mesh_quad make_quad(int x, int y, int z, int face, block_t block, u8 ao[4], bool flipped) {
+static struct mesh_quad make_quad(int x, int y, int z, int face, block_t block, u32 light, u8 ao[4], bool flipped) {
     struct mesh_quad quad = {0};
     quad.pos_face = (x & 0x3F) | ((y & 0x3F) << 6) | ((z & 0x3F) << 12);
     quad.pos_face |= (face & 0x7) << 18;
     quad.pos_face |= ((ao[0] & 0x3) << 21) | ((ao[1] & 0x3) << 23) | ((ao[2] & 0x3) << 25) | ((ao[3] & 0x3) << 27);
     quad.pos_face |= (flipped & 0x1) << 29;
+    quad.light = light;
 
     int texture_index = block_texture_index(block, face);
     assert(texture_index != NO_TEXTURE_INDEX);
@@ -294,6 +301,10 @@ size_t chunk_generate_mesh_data(struct chunk *c, void *buffer) {
     for (int y = 0; y < C_SIZE; y++) {
         for (int x = 0; x < C_SIZE; x++) {
             for (int z = 0; z < C_SIZE; z++) {
+                u32 light = 0;
+                if (x == 0 || y == 0 || z == 0)
+                    light = 1;
+
                 block_t block = chunk_get_block(c, x, y, z);
                 if (!block_is_solid(block))
                     continue;
@@ -307,7 +318,7 @@ size_t chunk_generate_mesh_data(struct chunk *c, void *buffer) {
                     if (block_create_face(block, face, chunk_get_block(c, ox, oy, oz))) {
                         bool flip = false;
                         get_face_ao(c, x, y, z, face, ao, &flip);
-                        struct mesh_quad quad = make_quad(x, y, z, face, block, ao, flip);
+                        struct mesh_quad quad = make_quad(x, y, z, face, block, light, ao, flip);
                         quads[added++] = quad;
                     }
                 }
@@ -339,6 +350,11 @@ size_t chunk_generate_face_mesh_data(struct chunk *c, int face, void *buffer) {
     for (int y = 0; y < C_SIZE; y++) {
         for (int x = 0; x < C_SIZE; x++) {
             for (int z = 0; z < C_SIZE; z++) {
+
+                u32 light = 0;
+                if (x == 0 || y == 0 || z == 0)
+                    light = 1;
+
                 block_t block = chunk_get_block(c, x, y, z);
                 if (!block_is_solid(block))
                     continue;
@@ -350,7 +366,7 @@ size_t chunk_generate_face_mesh_data(struct chunk *c, int face, void *buffer) {
                 if (block_create_face(block, face, chunk_get_block(c, ox, oy, oz))) {
                     bool flip = false;
                     get_face_ao(c, x, y, z, face, ao, &flip);
-                    quads[added++] = make_quad(x, y, z, face, block, ao, flip);
+                    quads[added++] = make_quad(x, y, z, face, block, light, ao, flip);
                 }
             }
         }
@@ -359,12 +375,4 @@ size_t chunk_generate_face_mesh_data(struct chunk *c, int face, void *buffer) {
     c->quad_count = added;
     c->dirty = false;
     return added;
-}
-
-void chunk_lock(struct chunk *c) {
-    mutex_lock(&c->lock);
-}
-
-void chunk_unlock(struct chunk *c) {
-    mutex_unlock(&c->lock);
 }

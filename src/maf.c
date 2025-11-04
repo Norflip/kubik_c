@@ -46,13 +46,16 @@ float v3_lensqr(vec3 v) {
 }
 
 // ivec3
-
 ivec3 iv3_add(ivec3 a, ivec3 b) {
     return (ivec3){a.x + b.x, a.y + b.y, a.z + b.z};
 }
 
 ivec3 iv3_sub(ivec3 a, ivec3 b) {
     return (ivec3){a.x - b.x, a.y - b.y, a.z - b.z};
+}
+
+ivec3 iv3_scale(ivec3 v, int s) {
+    return (ivec3){v.x * s, v.y * s, v.z * s};
 }
 
 ivec3 iv3_div(ivec3 v, int d) {

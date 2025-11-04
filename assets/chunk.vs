@@ -3,6 +3,8 @@
 struct quad {
     uint pos_face;
     uint tex;
+    uint light;
+    uint _padding;
 };
 
 struct chunk_data {
@@ -60,6 +62,7 @@ out VSOut {
     flat uint tint;
     vec2 uv;
     float ao;
+    float light_test;
 } outData;
 
 ivec3 get_quad_pos (quad q, out uint face) {
@@ -104,6 +107,9 @@ void main () {
     outData.texIndex = q.tex;
     outData.face = face;
     outData.tint = per_chunk_data[gl_DrawID].tint;
+    outData.light_test = clamp(float(q.light), 0.0f, 1.0f);
+    
+    //float((q.light >> (corner_idx * 8)) & 0xFF) / 255.0;
     //uint uv_corner_offset = rng_value(idx / 6) % 4;
     //outData.uv = corner_uv_lookup[(uv_corner_offset + corner_idx) % 4];
     outData.uv = corner_uv_lookup[corner_idx];

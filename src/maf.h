@@ -60,8 +60,10 @@ float v3_lensqr(vec3 v);
 // ivec3
 ivec3 iv3_add(ivec3 a, ivec3 b);
 ivec3 iv3_sub(ivec3 a, ivec3 b);
+ivec3 iv3_scale(ivec3 v, int s);
 ivec3 iv3_div(ivec3 v, int d);
 ivec3 iv3_floor(vec3 v);
+
 
 // mat4
 // http://www.opengl-tutorial.org/beginners-tutorials/tutorial-3-matrices/

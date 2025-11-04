@@ -1,4 +1,6 @@
 #version 460
+#define DEBUG_AO_VALUES 0
+#define DEBUG_LIGHT_VALUES 0
 
 uniform sampler2DArray atlas_texarr;
 layout(location = 3) uniform uint atlas_depth;
@@ -12,7 +14,9 @@ in VSOut {
     flat uint tint;
     vec2 uv;
     float ao;
+    float light_test;
 } inData;
+
 
 out vec4 frag_color;
 
@@ -37,14 +41,19 @@ void main() {
     vec3 sun_dir = normalize(vec3(1.0, 1.0, 1.0));
     float ndots = (dot(normal, sun_dir) + 1.0) * 0.5;
 
-    #if 0
+    #if DEBUG_AO_VALUES
     frag_color = vec4(inData.ao, inData.ao, inData.ao, 1.0);
+    return;
+    #endif 
+
+    #if DEBUG_LIGHT_VALUES
+    frag_color = vec4(inData.light_test, inData.light_test, inData.light_test, 1.0);
     return;
     #endif
 
     color.rgb *= (1.0 - dir_shadow_strength)  + dir_shadow_strength * ndots;
-    color.rgb *= 1.2;
-    color.rgb *= inData.ao;
+    color.rgb *= inData.light_test;
+    color.rgb *= inData.ao * 1.2;
 
     vec4 tint = unpack_color(inData.tint);
     color = mix(color, tint, tint.a);

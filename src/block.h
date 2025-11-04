@@ -1,12 +1,14 @@
 #ifndef BLOCKS_H
 #define BLOCKS_H
+#include "load.h"
+#include "utils.h"
 #include <stdbool.h>
 #include <stdint.h>
-#include "utils.h"
+
+#define NO_TEXTURE_INDEX -1
 
 typedef uint8_t block_t;
-#define NO_TEXTURE_INDEX -1
-enum { BLK_AIR = 0, BLK_BASE, BLK_STONE, BLK_DIRT, BLK_GRASS, BLK_COUNT };
+enum { BLK_AIR = 0, BLK_BASE, BLK_STONE, BLK_DIRT, BLK_GRASS, BLK_SAND, BLK_COUNT };
 
 static inline int block_is_solid(block_t b) {
     return b != BLK_AIR;
@@ -27,8 +29,32 @@ static int block_texture_index(block_t b, int face) {
         else if (face == DIR_DOWN)
             return 2;
         return 4;
+    case BLK_SAND:
+        return 5;
     }
     return NO_TEXTURE_INDEX;
+}
+
+static const char **block_texture_paths(int *out_count) {
+    static const char *paths[BLK_COUNT] = {
+        asset_path("blocks/base.png"),       // 0
+        asset_path("blocks/stone.png"),      // 1
+        asset_path("blocks/dirt.png"),       // 2
+        asset_path("blocks/grass_top.png"),  // 3
+        asset_path("blocks/grass_side.png"), // 4
+        asset_path("blocks/sand.png"),       // 5
+    };
+    *out_count = 6;
+    return paths;
+}
+
+static u32 block_default_light(block_t b) {
+    switch (b) {
+    case BLK_AIR:
+        return 0;
+    default:
+        return 0;
+    }
 }
 
 static bool block_create_face(block_t b, int face, block_t n) {
