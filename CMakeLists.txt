@@ -27,6 +27,7 @@ set(SRC_FILES
   src/mesh.c
   src/thread.c
   src/load.c
+  src/queue.c
 )
 
 add_executable(kubik ${SRC_FILES})

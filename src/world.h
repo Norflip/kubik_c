@@ -5,6 +5,7 @@
 #include "gfx.h"
 #include "maf.h"
 #include "mesh.h"
+#include "queue.h"
 #include "thread.h"
 #include "utils.h"
 
@@ -38,8 +39,7 @@ struct world {
     int hunk_count, hunk_cap;
 
     mesh_batch_t *batch;
-    struct work *work_heap;
-    size_t work_heap_count, work_heap_cap;
+    pqueue_t work_que;
     mutex_t work_lock;
     cond_t work_cond;
 };

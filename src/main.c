@@ -123,6 +123,7 @@ int main() {
     cam_initialize(&camera, window_width, window_height, to_rad(45.0f));
     cam_set_transform(&camera, (vec3){8.0f, 110.0f, 8.0f}, quat_identity());
 
+    memset(&world, 0, sizeof(struct world));
     world_init(&world, 0, 4);
     world_generate_initial(&world, 12);
 
@@ -171,7 +172,7 @@ int main() {
             world_trace(&world, ro, rd, 100.0f, &hit);
         }
 
-        if (track_gen_time && world.work_heap_count == 0) {
+        if (track_gen_time && pqueue_is_empty(&world.work_que)) {
             final_time = glfwGetTime() - gen_start_time;
             track_gen_time = false;
         }
@@ -242,7 +243,7 @@ int main() {
 
             igSeparatorText("World");
             igText("Seed: %d", world.seed);
-            igText("Work queue: %d", world.work_heap_count);
+            igText("Work queue: %d", world.work_que.count);
             igText("Workers: %d", world.num_worker_threads);
             igText("Gentime: %s", track_gen_time ? "generating..." : "done");
             if (track_gen_time) {

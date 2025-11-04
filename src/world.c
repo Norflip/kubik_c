@@ -25,74 +25,24 @@ struct work {
     };
 };
 
-static inline void swap_work(struct work *a, struct work *b) {
-    struct work temp = *a;
-    *a = *b;
-    *b = temp;
-}
-
-static void heapify_up(struct world *world, size_t index) {
-    while (index > 0) {
-        size_t parent_idx = (index - 1) / 2;
-        if (world->work_heap[index].priority >= world->work_heap[parent_idx].priority)
-            break;
-
-        swap_work(&world->work_heap[index], &world->work_heap[parent_idx]);
-        index = parent_idx;
-    }
-}
-
-static void heapify_down(struct world *world, size_t index) {
-    while (true) {
-        size_t smallest = index;
-        size_t left = 2 * index + 1;
-        size_t right = 2 * index + 2;
-
-        if (left < world->work_heap_count && world->work_heap[left].priority < world->work_heap[smallest].priority)
-            smallest = left;
-
-        if (right < world->work_heap_count && world->work_heap[right].priority < world->work_heap[smallest].priority)
-            smallest = right;
-
-        if (smallest == index)
-            break;
-
-        swap_work(&world->work_heap[index], &world->work_heap[smallest]);
-        index = smallest;
-    }
+static int work_cmp(const void *a, const void *b) {
+    const struct work *wa = (const struct work *)a;
+    const struct work *wb = (const struct work *)b;
+    return (wa->priority > wb->priority) - (wa->priority < wb->priority);
 }
 
 static void push_work(struct world *world, struct work work) {
     mutex_lock(&world->work_lock);
-    if (world->work_heap_count >= world->work_heap_cap) {
-        world->work_heap_cap <<= 1;
-        struct work *new_heap = realloc(world->work_heap, sizeof(struct work) * world->work_heap_cap);
-        if (!new_heap) {
-            fprintf(stderr, "Failed to resize work queue\n");
-            mutex_unlock(&world->work_lock);
-            return;
-        }
-        world->work_heap = new_heap;
-    }
-
-    world->work_heap[world->work_heap_count] = work;
-    heapify_up(world, world->work_heap_count);
-    world->work_heap_count++;
+    pqueue_enqueue(&world->work_que, &work);
     cond_signal(&world->work_cond);
     mutex_unlock(&world->work_lock);
 }
 
 static void pop_work(struct world *world, struct work *out) {
     mutex_lock(&world->work_lock);
-    while (world->work_heap_count == 0)
+    while (pqueue_is_empty(&world->work_que))
         cond_wait(&world->work_cond, &world->work_lock);
-
-    *out = world->work_heap[0];
-    world->work_heap_count--;
-    if (world->work_heap_count > 0) {
-        world->work_heap[0] = world->work_heap[world->work_heap_count];
-        heapify_down(world, 0);
-    }
+    pqueue_dequeue(&world->work_que, out);
     mutex_unlock(&world->work_lock);
 }
 
@@ -366,14 +316,10 @@ void world_init(struct world *w, int seed, int num_worker_threads) {
         exit(EXIT_FAILURE);
     }
 
-    // worldrnd_init(&w->rnd, H_SIZE3);
-
     w->batch = mesh_batch_init("chunk_mesh_batch", MB(32), KB(2), H_SIZE3, sizeof(struct instance_data));
 
     // work queue
-    w->work_heap_cap = 512;
-    w->work_heap = malloc(sizeof(struct work) * w->work_heap_cap);
-    w->work_heap_count = 0;
+    pqueue_init(&(w->work_que), 512, sizeof(struct work), work_cmp);
     mutex_init(&w->work_lock);
     cond_init(&w->work_cond);
     printf("World initialized with seed %d\n", seed);
@@ -514,7 +460,7 @@ int world_sample_height(struct world *w, int x, int z) {
 }
 
 bool world_is_working(struct world *w) {
-    return w->work_heap_count > 0;
+    return !pqueue_is_empty(&w->work_que);
 }
 
 void world_draw(struct world *w, struct cam *cam, GLuint program, GLuint atlas, int atlas_depth) {
@@ -849,12 +795,12 @@ static void gen_chunk_base(struct world *w, struct chunk *c) {
     }
 }
 
-struct lpos_iter {
+struct local_pos {
     int x, y, z;
     struct chunk *c;
 };
 
-void move_up(struct lpos_iter *it) {
+void local_pos_up(struct local_pos *it) {
     it->y++;
     if (it->y >= C_SIZE) {
         it->y = 0;
@@ -862,7 +808,7 @@ void move_up(struct lpos_iter *it) {
     }
 }
 
-void move_down(struct lpos_iter *it) {
+void local_pos_down(struct local_pos *it) {
     it->y--;
     if (it->y < 0) {
         it->y = C_SIZE - 1;
@@ -870,7 +816,7 @@ void move_down(struct lpos_iter *it) {
     }
 }
 
-bool check_air_above(struct lpos_iter *it, int n) {
+bool check_air_above(struct local_pos *it, int n) {
     for (int i = 0; i < n; i++) {
         if (it->c == NULL)
             return true;
@@ -878,7 +824,7 @@ bool check_air_above(struct lpos_iter *it, int n) {
         if (chunk_get_block(it->c, it->x, it->y, it->z) != BLK_AIR)
             return false;
 
-        move_up(it);
+        local_pos_up(it);
     }
     return true;
 }
@@ -911,11 +857,11 @@ static void gen_chunk_surface(struct world *w, struct chunk *c) {
                 // would be the first stone in the column
                 // check if we have 8 blocks of air above
                 // if so it's a surface block and we can replace it with grass and move down with some dirt
-                struct lpos_iter pos_a = {.x = x, .y = y, .z = z, .c = c};
+                struct local_pos pos_a = {.x = x, .y = y, .z = z, .c = c};
 
                 if (steps_down < required_air_above) {
                     // we already know there is enough air above
-                    move_up(&pos_a);
+                    local_pos_up(&pos_a);
                     if (!check_air_above(&pos_a, required_air_above))
                         break;
                 }
@@ -925,8 +871,8 @@ static void gen_chunk_surface(struct world *w, struct chunk *c) {
                 dirt_t = (dirt_t + 1.0f) * 0.5f;
                 int dirt_depth = min_dirt_depth + (int)((max_dirt_depth - min_dirt_depth) * u_clamp(dirt_t, 0.0f, 1.0f));
 
-                struct lpos_iter pos_b = {.x = x, .y = y, .z = z, .c = c};
-                move_down(&pos_b);
+                struct local_pos pos_b = {.x = x, .y = y, .z = z, .c = c};
+                local_pos_down(&pos_b);
 
                 for (int d = 0; d < dirt_depth; d++) {
                     if (pos_a.c == NULL)
@@ -935,7 +881,7 @@ static void gen_chunk_surface(struct world *w, struct chunk *c) {
                     if (b != BLK_STONE)
                         break;
                     set_block_internal(w, pos_b.c, pos_b.x, pos_b.y, pos_b.z, subsurface_block);
-                    move_down(&pos_b);
+                    local_pos_down(&pos_b);
                 }
                 break;
             }
