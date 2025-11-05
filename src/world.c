@@ -377,7 +377,6 @@ static int get_chunk_column_priority(int x, int z, int center_x, int center_z) {
 
 void world_generate_initial(struct world *w, int load_radius) {
     assert(w->initialized);
-
     if (load_radius <= 0)
         load_radius = 1;
 

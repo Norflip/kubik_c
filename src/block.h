@@ -8,7 +8,7 @@
 #define NO_TEXTURE_INDEX -1
 
 typedef uint8_t block_t;
-enum { BLK_AIR = 0, BLK_BASE, BLK_STONE, BLK_DIRT, BLK_GRASS, BLK_SAND, BLK_OCEAN, BLK_COUNT };
+enum { BLK_AIR = 0, BLK_BASE, BLK_STONE, BLK_DIRT, BLK_GRASS, BLK_SAND, BLK_OCEAN, BLK_GLOW, BLK_COUNT };
 
 static inline int block_is_solid(block_t b) {
     return b != BLK_AIR;
@@ -33,6 +33,8 @@ static int block_texture_index(block_t b, int face) {
         return 5;
     case BLK_OCEAN:
         return 6;
+    case BLK_GLOW:
+        return 7;
     }
     return NO_TEXTURE_INDEX;
 }
@@ -46,8 +48,9 @@ static const char **block_texture_paths(int *out_count) {
         asset_path("blocks/grass_side.png"), // 4
         asset_path("blocks/sand.png"),       // 5
         asset_path("blocks/PH_water.png"),   // 6
+        asset_path("blocks/glow.png"),       // 7
     };
-    *out_count = 7;
+    *out_count = 8;
     return paths;
 }
 
@@ -79,6 +82,12 @@ static const char *block_name(block_t b) {
         return "Dirt";
     case BLK_GRASS:
         return "Grass";
+    case BLK_SAND:
+        return "Sand";
+    case BLK_OCEAN:
+        return "Ocean";
+    case BLK_GLOW:
+        return "Glow";
     default:
         return "Unknown";
     }
