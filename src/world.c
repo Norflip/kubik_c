@@ -719,6 +719,9 @@ static void sample_initial_noise(float *samples, struct chunk *c, fnl_state *sta
 }
 
 static void gen_chunk_base(struct world *w, struct chunk *c) {
+
+    const int ocean_level = 105;
+
     fnl_state density_state = fnlCreateState(w->seed);
     density_state.noise_type = FNL_NOISE_OPENSIMPLEX2;
     density_state.fractal_type = FNL_FRACTAL_FBM;
@@ -793,6 +796,8 @@ static void gen_chunk_base(struct world *w, struct chunk *c) {
                     block = BLK_BASE;
                 } else if (density + density_bias > 0.0f) {
                     block = BLK_STONE;
+                } else if (wy < ocean_level) {
+                    block = BLK_OCEAN;
                 }
 
                 set_block_internal(w, c, x, y, z, block);
@@ -855,6 +860,8 @@ bool check_air_above(struct local_pos *it, int n) {
 
 static void gen_chunk_surface(struct world *w, struct chunk *c) {
 
+    const int ocean_level = 105;
+
     const int required_air_above = 12;
     const int min_dirt_depth = 2;
     const int max_dirt_depth = 5;
@@ -876,6 +883,11 @@ static void gen_chunk_surface(struct world *w, struct chunk *c) {
                 if (block != BLK_STONE) {
                     steps_down++;
                     continue;
+                }
+
+                if ((c->pos.y * C_SIZE + y) < ocean_level) {
+                    // underwater stone should not be replaced with grass
+                    break;
                 }
 
                 // would be the first stone in the column
