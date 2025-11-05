@@ -71,4 +71,20 @@ void chunk_set_neighbour(struct chunk *c, struct chunk *neighbour, int face);
 size_t chunk_generate_mesh_data(struct chunk *c, void *buffer);
 size_t chunk_generate_face_mesh_data(struct chunk *c, int face, void *buffer);
 
+static inline bool pos_inside(int x, int y, int z) {
+    return (x >= 0 && x < C_SIZE && y >= 0 && y < C_SIZE && z >= 0 && z < C_SIZE);
+}
+
+static inline bool pos_inside_padded(int x, int y, int z) {
+    return (x >= -1 && x <= (C_SIZE) && y >= -1 && y <= (C_SIZE) && z >= -1 && z <= (C_SIZE));
+}
+
+static inline bool pos_on_padding(int x, int y, int z) {
+    return (x == -1 || x == C_SIZE || y == -1 || y == C_SIZE || z == -1 || z == C_SIZE);
+}
+
+static inline bool pos_on_border(int x, int y, int z) {
+    return (x == 0 || x == (C_SIZE - 1) || y == 0 || y == (C_SIZE - 1) || z == 0 || z == (C_SIZE - 1));
+}
+
 #endif // CHUNK_H

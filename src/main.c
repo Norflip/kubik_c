@@ -57,11 +57,10 @@ int main() {
     window_height = mode->height * DEFAULT_WINDOW_FACTOR_HEIGHT;
     window_width = window_height * DEFAULT_ASPECT_RATIO;
 
-
 #if KU_DEBUG
-    const char* title = "kubik [debug]";
+    const char *title = "kubik [debug]";
 #else
-    const char* title = "kubik";
+    const char *title = "kubik";
 #endif
 
     window = glfwCreateWindow(window_width, window_height, title, NULL, NULL);
@@ -135,7 +134,7 @@ int main() {
     GLuint chunk_program = load_program("chunk", asset_path("chunk.vs"), asset_path("chunk.fs"));
 
     int texture_count = 0;
-    const char** paths = block_texture_paths(&texture_count);
+    const char **paths = block_texture_paths(&texture_count);
 
     int atlas_depth = 0;
     GLuint chunk_atlas = load_atlas("atlas", paths, texture_count, 8, 8, 8, &atlas_depth);
@@ -143,27 +142,38 @@ int main() {
     vec3 ro, rd;
     struct world_hit hit = {0};
 
+    // bool mouse_state[GLFW_MOUSE_BUTTON_LAST] = {0};
+    // bool mouse_state_prev[GLFW_MOUSE_BUTTON_LAST] = {0};
+    bool mouse_state[GLFW_MOUSE_BUTTON_LAST][2] = {0};
+
+    u64 frame_count = 0;
+
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
 
         double curr_frame = glfwGetTime();
         const double dt = curr_frame - prev_frame;
         prev_frame = curr_frame;
-
         cam_fps_update(&camera, window, dt);
+        world_tick(&world);
 
-        if (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS) {
-            // cursor screen pos
-            double mouse_x, mouse_y;
-            glfwGetCursorPos(window, &mouse_x, &mouse_y);
-
-            cam_screen_to_ray(&camera, (int)mouse_x, (int)mouse_y, &ro, &rd);
-            world_trace(&world, ro, rd, 100.0f, &hit);
+        for (u64 i = 0; i < GLFW_MOUSE_BUTTON_LAST; i++) {
+            mouse_state[i][1] = mouse_state[i][0];                                // previous = current
+            mouse_state[i][0] = glfwGetMouseButton(window, (int)i) == GLFW_PRESS; // current = new
         }
 
-        if (track_gen_time && pqueue_is_empty(&world.work_que)) {
-            final_time = glfwGetTime() - gen_start_time;
-            track_gen_time = false;
+        // cursor screen pos
+        double mouse_x, mouse_y;
+        glfwGetCursorPos(window, &mouse_x, &mouse_y);
+        cam_screen_to_ray(&camera, (int)mouse_x, (int)mouse_y, &ro, &rd);
+        world_trace(&world, ro, rd, 100.0f, &hit);
+
+        if (hit.did_hit && mouse_state[GLFW_MOUSE_BUTTON_LEFT][0] && !mouse_state[GLFW_MOUSE_BUTTON_LEFT][1]) {
+            ivec3 place_pos = hit.pos;
+            place_pos.x += hit.normal.x;
+            place_pos.y += hit.normal.y;
+            place_pos.z += hit.normal.z;
+            world_set_block(&world, place_pos.x, place_pos.y, place_pos.z, BLK_STONE);
         }
 
         // rendering start
@@ -271,6 +281,7 @@ int main() {
         igRender();
         ImGui_ImplOpenGL3_RenderDrawData(igGetDrawData());
         glfwSwapBuffers(window);
+        frame_count++;
     }
 
     gfx_shutdown();

@@ -6,22 +6,6 @@
 
 #define C_CANARY 0xBABEDAD
 
-static bool inside(int x, int y, int z) {
-    return (x >= 0 && x < C_SIZE && y >= 0 && y < C_SIZE && z >= 0 && z < C_SIZE);
-}
-
-static bool inside_padded(int x, int y, int z) {
-    return (x >= -1 && x <= (C_SIZE) && y >= -1 && y <= (C_SIZE) && z >= -1 && z <= (C_SIZE));
-}
-
-static bool on_padding(int x, int y, int z) {
-    return (x == -1 || x == C_SIZE || y == -1 || y == C_SIZE || z == -1 || z == C_SIZE);
-}
-
-static bool on_border(int x, int y, int z) {
-    return (x == 0 || x == (C_SIZE - 1) || y == 0 || y == (C_SIZE - 1) || z == 0 || z == (C_SIZE - 1));
-}
-
 #define ASSERT_CHUNK(c) \
     assert(c != NULL);  \
     assert(c->_canary == C_CANARY)
@@ -98,7 +82,7 @@ static bool try_alloc_block_data(struct chunk *c) {
 
 static void set_padded_blockstate(struct chunk *c, int x, int y, int z, struct block_state value) {
 
-    if (!on_border(x, y, z))
+    if (!pos_on_border(x, y, z))
         return;
 
     // seems a bit overkill to make a bitmask for this tbh
@@ -159,7 +143,7 @@ static void set_padded_blockstate(struct chunk *c, int x, int y, int z, struct b
 
 bool chunk_set_block(struct chunk *c, int x, int y, int z, block_t value) {
     ASSERT_CHUNK(c);
-    if (!inside(x, y, z)) {
+    if (!pos_inside(x, y, z)) {
         fprintf(stderr, "chunk_set_block: position (%d, %d, %d) is out of bounds in chunk (%d, %d, %d)\n", x, y, z, c->pos.x, c->pos.y, c->pos.z);
         return false;
     }
@@ -188,7 +172,7 @@ bool chunk_set_block(struct chunk *c, int x, int y, int z, block_t value) {
 
 block_t chunk_get_block(struct chunk *c, int x, int y, int z) {
     ASSERT_CHUNK(c);
-    if (!inside_padded(x, y, z))
+    if (!pos_inside_padded(x, y, z))
         return BLK_AIR;
     if (c->blocks == NULL)
         return BLK_AIR;
@@ -201,7 +185,7 @@ bool chunk_block_is_solid(struct chunk *c, int x, int y, int z) {
 
 bool chunk_set_light(struct chunk *c, int x, int y, int z, u32 value) {
     ASSERT_CHUNK(c);
-    if (!inside(x, y, z)) {
+    if (!pos_inside(x, y, z)) {
         fprintf(stderr, "chunk_set_light: position (%d, %d, %d) is out of bounds in chunk (%d, %d, %d)\n", x, y, z, c->pos.x, c->pos.y, c->pos.z);
         return false;
     }

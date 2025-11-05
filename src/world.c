@@ -204,6 +204,11 @@ static void gen_chunk_mesh_fn(struct chunk *c, struct world *w, struct work *sel
     size_t quad_count = chunk_generate_mesh_data(c, quads);
 
     if (quad_count > 0) {
+        if (c->mesh_handle.valid) {
+            mesh_batch_free(w->batch, &c->mesh_handle);
+            c->mesh_handle.valid = false;
+        }
+
         // worldrnd_upload(&w->rnd, c, quads, quad_count * sizeof(struct mesh_quad));
         if (!mesh_batch_alloc(w->batch, quads, quad_count * sizeof(struct mesh_quad), &c->mesh_handle)) {
             fprintf(stderr, "gen_chunk_mesh_fn: failed to allocate mesh batch for chunk (%d, %d, %d)\n", c->pos.x, c->pos.y, c->pos.z);
@@ -256,8 +261,10 @@ struct chunk *world_get_chunk(struct world *w, int x, int y, int z) {
 }
 
 static void set_block_internal(struct world *w, struct chunk *c, int lx, int ly, int lz, block_t block) {
-    if (!c)
+    if (!c) {
+        fprintf(stderr, "set_block_internal: chunk is NULL\n");
         return;
+    }
 
     assert(lx >= 0 && lx < C_SIZE);
     assert(ly >= 0 && ly < C_SIZE);
@@ -319,6 +326,14 @@ void world_init(struct world *w, int seed, int num_worker_threads, bool flatgras
     w->hunks = malloc(sizeof(struct hunk *) * w->hunk_cap);
     if (!w->hunks) {
         fprintf(stderr, "world_init: failed to allocate hunk array\n");
+        exit(EXIT_FAILURE);
+    }
+
+    w->dirty_chunk_count = 0;
+    w->dirty_chunk_cap = 64;
+    w->dirty_chunks = malloc(sizeof(struct chunk *) * w->dirty_chunk_cap);
+    if (!w->dirty_chunks) {
+        fprintf(stderr, "world_init: failed to allocate dirty chunk array\n");
         exit(EXIT_FAILURE);
     }
 
@@ -431,14 +446,52 @@ void world_generate_initial(struct world *w, int load_radius) {
     free(columns);
 }
 
+// TODO: temporary, needs to handle edges properly
+static bool is_on_face(int x, int y, int z, int face) {
+    switch (face) {
+    case 0:
+        return x == C_SIZE - 1;
+    case 1:
+        return x == 0;
+    case 2:
+        return y == C_SIZE - 1;
+    case 3:
+        return y == 0;
+    case 4:
+        return z == C_SIZE - 1;
+    case 5:
+        return z == 0;
+    default:
+        return false;
+    }
+}
+
 void world_set_block(struct world *w, int x, int y, int z, block_t block) {
     int cx, cy, cz;
     int lx, ly, lz;
     relative_pos(x, y, z, C_SIZE, &cx, &cy, &cz, &lx, &ly, &lz);
     struct chunk *c = world_get_chunk(w, cx, cy, cz);
-    if (!c)
+    if (!c) {
+        fprintf(stderr, "world_set_block: chunk (%d, %d, %d) not found for block (%d, %d, %d)\n", cx, cy, cz, x, y, z);
         return;
+    }
+
+    printf("world_set_block: setting block (%d, %d, %d) in chunk (%d, %d, %d) to %d\n", lx, ly, lz, c->pos.x, c->pos.y, c->pos.z, block);
     set_block_internal(w, c, lx, ly, lz, block);
+
+    // check if on border
+    if (pos_on_border(lx, ly, lz)) {
+        for (int face = 0; face < 6; face++) {
+            if (is_on_face(lx, ly, lz, face)) {
+                struct chunk *neighbour = c->neighbours[face];
+                if (neighbour) {
+                    w->dirty_chunks[w->dirty_chunk_count++] = neighbour;
+                }
+            }
+        }
+    }
+
+    w->dirty_chunks[w->dirty_chunk_count++] = c;
 }
 
 block_t world_get_block(struct world *w, int x, int y, int z) {
@@ -467,6 +520,15 @@ int world_sample_height(struct world *w, int x, int z) {
 
 bool world_is_working(struct world *w) {
     return !pqueue_is_empty(&w->work_que);
+}
+
+void world_tick(struct world *w) {
+    for (int i = 0; i < w->dirty_chunk_count; i++) {
+        struct chunk *c = w->dirty_chunks[i];
+        // process the list of block changes, if they are on the border then we need to remesh neighbours as well
+        push_work(w, (struct work){.chunk = c, .is_column = false, .func = gen_chunk_mesh_fn, .priority = WORK_MESH_PRIORITY_BASE});
+    }
+    w->dirty_chunk_count = 0;
 }
 
 void world_draw(struct world *w, struct cam *cam, GLuint program, GLuint atlas, int atlas_depth) {

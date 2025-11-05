@@ -39,6 +39,9 @@ struct world {
     struct hunk **hunks;
     int hunk_count, hunk_cap;
 
+    struct chunk **dirty_chunks;
+    int dirty_chunk_count, dirty_chunk_cap;
+
     mesh_batch_t *batch;
     pqueue_t work_que;
     mutex_t work_lock;
@@ -60,6 +63,9 @@ void world_set_block(struct world *w, int x, int y, int z, block_t block);
 block_t world_get_block(struct world *w, int x, int y, int z);
 int world_sample_height(struct world *w, int x, int z);
 bool world_is_working(struct world *w);
+
+void world_tick(struct world *w);
+
 // move to render/gfx.h?
 void world_draw(struct world *w, struct cam *cam, GLuint program, GLuint atlas, int atlas_depth);
 bool world_trace(struct world *w, vec3 o, vec3 dir, float max_distance, struct world_hit *hit);
