@@ -51,8 +51,10 @@ void main() {
     return;
     #endif
 
+    const float AMBIENT_LIGHT = 0.2;
+
     color.rgb *= (1.0 - dir_shadow_strength)  + dir_shadow_strength * ndots;
-    color.rgb *= inData.light_test;
+    color.rgb *= clamp(inData.light_test + AMBIENT_LIGHT, 0.0, 1.0);
     color.rgb *= inData.ao * 1.2;
 
     vec4 tint = unpack_color(inData.tint);

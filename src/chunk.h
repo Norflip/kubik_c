@@ -22,7 +22,13 @@ struct mesh_quad {
     u32 _padding;
 };
 
-enum chunk_state { C_STATE_EMPTY = 0, C_STATE_GENERATING, C_STATE_GENERATED, C_STATE_MESHING, C_STATE_MESHED };
+enum chunk_state { 
+    C_STATE_EMPTY = 0, 
+    C_STATE_GENERATING, 
+    C_STATE_GENERATED, 
+    C_STATE_MESHING, 
+    C_STATE_MESHED 
+};
 
 enum chunk_flag {
     CHUNK_FLAG_DIRTY = 1 << 0,
@@ -34,9 +40,11 @@ struct instance_data {
     col32_t tint;
 };
 
+typedef uint32_t light_t;
+
 struct block_state {
     block_t type;
-    u32 light;
+    light_t light;
 };
 
 struct chunk {
@@ -47,8 +55,8 @@ struct chunk {
     enum chunk_flag flags;
 
     struct block_state *blocks;
-    int fill_count; // excludes the padded blocks
     struct chunk *neighbours[6];
+    int fill_count; // excludes the padded blocks
 
     // rendering stuff
     mesh_handle_t mesh_handle;
@@ -63,14 +71,28 @@ void chunk_initialize(struct chunk *c, ivec3 pos, enum chunk_flag flags);
 bool chunk_set_block(struct chunk *c, int x, int y, int z, block_t value);
 block_t chunk_get_block(struct chunk *c, int x, int y, int z);
 bool chunk_block_is_solid(struct chunk *c, int x, int y, int z);
-
 ivec3 chunk_world_pos(struct chunk *c);
 uint32_t chunk_seed(struct chunk *c);
 
 void chunk_set_neighbour(struct chunk *c, struct chunk *neighbour, int face);
 size_t chunk_generate_mesh_data(struct chunk *c, void *buffer);
-size_t chunk_generate_face_mesh_data(struct chunk *c, int face, void *buffer);
+void tmp_floodfill_light(struct chunk *c, int x, int y, int z);
 
+//
+typedef struct {
+    struct chunk *chunk;
+    int x, y, z;
+} iterator_t;
+
+iterator_t iterator_make(struct chunk *c, int x, int y, int z);
+void iterator_up(iterator_t *it);
+void iterator_down(iterator_t *it);
+void iterator_move(iterator_t *it, enum dir dir);
+void iterator_update(iterator_t *it);
+bool iterator_is_valid(iterator_t *it);
+struct block_state *iterator_get_block_state_ptr(iterator_t *it);
+
+// Helper functions for positions
 static inline bool pos_inside(int x, int y, int z) {
     return (x >= 0 && x < C_SIZE && y >= 0 && y < C_SIZE && z >= 0 && z < C_SIZE);
 }

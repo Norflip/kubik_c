@@ -145,7 +145,7 @@ int main() {
     // bool mouse_state[GLFW_MOUSE_BUTTON_LAST] = {0};
     // bool mouse_state_prev[GLFW_MOUSE_BUTTON_LAST] = {0};
     bool mouse_state[GLFW_MOUSE_BUTTON_LAST][2] = {0};
-    block_t selected_block_index = BLK_STONE;
+    block_t selected_block_index = BLK_GLOW;
 
     u64 frame_count = 0;
 
@@ -163,25 +163,30 @@ int main() {
             mouse_state[i][0] = glfwGetMouseButton(window, (int)i) == GLFW_PRESS; // current = new
         }
 
-        // cursor screen pos
-        double mouse_x, mouse_y;
-        glfwGetCursorPos(window, &mouse_x, &mouse_y);
-        cam_screen_to_ray(&camera, (int)mouse_x, (int)mouse_y, &ro, &rd);
-        world_trace(&world, ro, rd, 100.0f, &hit);
+        if (!igGetIO()->WantCaptureMouse) {
+            // cursor screen pos
+            double mouse_x, mouse_y;
+            glfwGetCursorPos(window, &mouse_x, &mouse_y);
+            cam_screen_to_ray(&camera, (int)mouse_x, (int)mouse_y, &ro, &rd);
+            world_trace(&world, ro, rd, 100.0f, &hit);
 
-        if (hit.did_hit && mouse_state[GLFW_MOUSE_BUTTON_LEFT][0] && !mouse_state[GLFW_MOUSE_BUTTON_LEFT][1]) {
+            if (hit.did_hit && mouse_state[GLFW_MOUSE_BUTTON_MIDDLE][0] && !mouse_state[GLFW_MOUSE_BUTTON_MIDDLE][1]) {
+                selected_block_index = hit.block;
+            }
 
-            // check glfw for shift
-            if (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_RIGHT_SHIFT) == GLFW_PRESS) {
-                // remove block
-                world_set_block(&world, hit.pos.x, hit.pos.y, hit.pos.z, BLK_AIR);
-            } else {
-                // place block
-                ivec3 place_pos = hit.pos;
-                place_pos.x += hit.normal.x;
-                place_pos.y += hit.normal.y;
-                place_pos.z += hit.normal.z;
-                world_set_block(&world, place_pos.x, place_pos.y, place_pos.z, selected_block_index);
+            if (hit.did_hit && mouse_state[GLFW_MOUSE_BUTTON_LEFT][0] && !mouse_state[GLFW_MOUSE_BUTTON_LEFT][1]) {
+                // check glfw for shift
+                if (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_RIGHT_SHIFT) == GLFW_PRESS || selected_block_index == BLK_AIR) {
+                    // remove block
+                    world_set_block(&world, hit.pos.x, hit.pos.y, hit.pos.z, BLK_AIR);
+                } else {
+                    // place block
+                    ivec3 place_pos = hit.pos;
+                    place_pos.x += hit.normal.x;
+                    place_pos.y += hit.normal.y;
+                    place_pos.z += hit.normal.z;
+                    world_set_block(&world, place_pos.x, place_pos.y, place_pos.z, selected_block_index);
+                }
             }
         }
 
@@ -242,10 +247,7 @@ int main() {
                 block_names[i] = block_name((block_t)i);
             }
 
-            // Create the combo box
-            if (igCombo_Str_arr("Block Type", (int*)(&selected_block_index), block_names, BLK_COUNT, -1)) {
-                // Selection changed - selected_block_index now has the new value
-                // You can do something here if needed
+            if (igCombo_Str_arr("Block Type", (int *)(&selected_block_index), block_names, BLK_COUNT, -1)) {
             }
 
             igSeparatorText("Raycast");

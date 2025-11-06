@@ -215,6 +215,7 @@ static void gen_chunk_mesh_fn(struct chunk *c, struct world *w, struct work *sel
         }
     }
 
+    c->dirty = false;
     c->state = C_STATE_MESHED;
     free(quads);
 }
@@ -475,7 +476,6 @@ void world_set_block(struct world *w, int x, int y, int z, block_t block) {
         return;
     }
 
-    printf("world_set_block: setting block (%d, %d, %d) in chunk (%d, %d, %d) to %d\n", lx, ly, lz, c->pos.x, c->pos.y, c->pos.z, block);
     set_block_internal(w, c, lx, ly, lz, block);
 
     // check if on border
@@ -522,16 +522,25 @@ bool world_is_working(struct world *w) {
 }
 
 void world_tick(struct world *w) {
+
+    // slow and not the best way, but simple
+    // add a list of block changes to each chunk. If they are on the border then we need to remesh neighbours as well
+
+    for (int i = 0; i < w->chunk_count; i++) {
+        struct chunk *c = w->chunks[i];
+        if (c->dirty && c->state == C_STATE_MESHED) {
+            w->dirty_chunks[w->dirty_chunk_count++] = c;
+        }
+    }
+
     for (int i = 0; i < w->dirty_chunk_count; i++) {
         struct chunk *c = w->dirty_chunks[i];
-        // process the list of block changes, if they are on the border then we need to remesh neighbours as well
         push_work(w, (struct work){.chunk = c, .is_column = false, .func = gen_chunk_mesh_fn, .priority = WORK_MESH_PRIORITY_BASE});
     }
     w->dirty_chunk_count = 0;
 }
 
 void world_draw(struct world *w, struct cam *cam, GLuint program, GLuint atlas, int atlas_depth) {
-    // worldrnd_clear(&w->rnd);
     mesh_batch_clear_commands(w->batch);
 
     for (int i = 0; i < w->chunk_count; i++) {
@@ -885,36 +894,16 @@ static void gen_chunk_base_flatgrass(struct world *w, struct chunk *c) {
     }
 }
 
-struct local_pos {
-    int x, y, z;
-    struct chunk *c;
-};
-
-void local_pos_up(struct local_pos *it) {
-    it->y++;
-    if (it->y >= C_SIZE) {
-        it->y = 0;
-        it->c = it->c->neighbours[DIR_UP];
-    }
-}
-
-void local_pos_down(struct local_pos *it) {
-    it->y--;
-    if (it->y < 0) {
-        it->y = C_SIZE - 1;
-        it->c = it->c->neighbours[DIR_DOWN];
-    }
-}
-
-bool check_air_above(struct local_pos *it, int n) {
+static inline bool check_air_above(iterator_t *it, int n) {
     for (int i = 0; i < n; i++) {
-        if (it->c == NULL)
+        if (it->chunk == NULL)
             return true;
-
-        if (chunk_get_block(it->c, it->x, it->y, it->z) != BLK_AIR)
+        struct block_state *bs = iterator_get_block_state_ptr(it);
+        if (bs == NULL)
+            return true;
+        if (bs->type != BLK_AIR)
             return false;
-
-        local_pos_up(it);
+        iterator_up(it);
     }
     return true;
 }
@@ -946,7 +935,7 @@ static void gen_chunk_surface(struct world *w, struct chunk *c) {
                     continue;
                 }
 
-                if ((c->pos.y * C_SIZE + y) < ocean_level) {
+                if (!w->flatgrass && (c->pos.y * C_SIZE + y) < ocean_level) {
                     // underwater stone should not be replaced with grass
                     break;
                 }
@@ -954,11 +943,11 @@ static void gen_chunk_surface(struct world *w, struct chunk *c) {
                 // would be the first stone in the column
                 // check if we have 8 blocks of air above
                 // if so it's a surface block and we can replace it with grass and move down with some dirt
-                struct local_pos pos_a = {.x = x, .y = y, .z = z, .c = c};
+                iterator_t pos_a = iterator_make(c, x, y, z);
 
                 if (steps_down < required_air_above) {
                     // we already know there is enough air above
-                    local_pos_up(&pos_a);
+                    iterator_up(&pos_a);
                     if (!check_air_above(&pos_a, required_air_above))
                         break;
                 }
@@ -968,17 +957,17 @@ static void gen_chunk_surface(struct world *w, struct chunk *c) {
                 dirt_t = (dirt_t + 1.0f) * 0.5f;
                 int dirt_depth = min_dirt_depth + (int)((max_dirt_depth - min_dirt_depth) * u_clamp(dirt_t, 0.0f, 1.0f));
 
-                struct local_pos pos_b = {.x = x, .y = y, .z = z, .c = c};
-                local_pos_down(&pos_b);
+                iterator_t pos_b = iterator_make(c, x, y, z);
+                iterator_down(&pos_b);
 
                 for (int d = 0; d < dirt_depth; d++) {
-                    if (pos_a.c == NULL)
+                    if (pos_a.chunk == NULL)
                         break;
-                    block_t b = chunk_get_block(pos_b.c, pos_b.x, pos_b.y, pos_b.z);
+                    block_t b = chunk_get_block(pos_b.chunk, pos_b.x, pos_b.y, pos_b.z);
                     if (b != BLK_STONE)
                         break;
-                    set_block_internal(w, pos_b.c, pos_b.x, pos_b.y, pos_b.z, subsurface_block);
-                    local_pos_down(&pos_b);
+                    set_block_internal(w, pos_b.chunk, pos_b.x, pos_b.y, pos_b.z, subsurface_block);
+                    iterator_down(&pos_b);
                 }
                 break;
             }

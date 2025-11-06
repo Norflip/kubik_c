@@ -11,7 +11,7 @@ typedef uint8_t block_t;
 enum { BLK_AIR = 0, BLK_BASE, BLK_STONE, BLK_DIRT, BLK_GRASS, BLK_SAND, BLK_OCEAN, BLK_GLOW, BLK_COUNT };
 
 static inline int block_is_solid(block_t b) {
-    return b != BLK_AIR;
+    return b != BLK_AIR && b != BLK_OCEAN;
 }
 
 static int block_texture_index(block_t b, int face) {
@@ -55,6 +55,8 @@ static const char **block_texture_paths(int *out_count) {
 }
 
 static u32 block_default_light(block_t b) {
+    if (b == BLK_GLOW)
+        return 0xFF;
     return 0;
 }
 

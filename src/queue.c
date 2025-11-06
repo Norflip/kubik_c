@@ -5,19 +5,22 @@
 
 // FIFO queueUE IMPLEMENTATION
 void queue_init(queue_t *queue, u64 capacity, u64 elem_size) {
-    queue->queue = malloc(capacity * elem_size);
+    memset(queue, 0, sizeof(queue_t));
+    queue->cap = 2;
+    while (queue->cap < capacity)
+        queue->cap <<= 1;
+
+    queue->queue = malloc(queue->cap * elem_size);
     if (!queue->queue) {
         fprintf(stderr, "queue_create: failed to allocate memory for queue\n");
         exit(EXIT_FAILURE);
     }
 
     queue->elem_size = elem_size;
-    queue->cap = 2;
-    while (queue->cap < capacity)
-        queue->cap <<= 1;
     queue->count = 0;
     queue->head = 0;
     queue->tail = 0;
+    queue->allow_resizing = false;
 }
 
 void queue_destroy(queue_t *queue) {
@@ -26,22 +29,29 @@ void queue_destroy(queue_t *queue) {
 }
 
 bool queue_enqueue(queue_t *queue, const void *elem) {
-    if (queue->count >= queue->cap) {
-        u64 old_cap = queue->cap;
-        queue->cap <<= 1;
-        void *new_queue = realloc(queue->queue, queue->cap * queue->elem_size);
-        if (!new_queue) {
-            fprintf(stderr, "queue_enqueueue: failed to resize queueue\n");
-            return false;
-        }
+    if (queue->allow_resizing) {
+        if (queue->count >= queue->cap) {
+            u64 old_cap = queue->cap;
+            queue->cap <<= 1;
+            void *new_queue = realloc(queue->queue, queue->cap * queue->elem_size);
+            if (!new_queue) {
+                fprintf(stderr, "queue_enqueue: failed to resize queue\n");
+                return false;
+            }
 
-        queue->queue = new_queue;
-        if (queue->tail < queue->head) {
-            memcpy((void *)((uintptr_t)queue->queue + (old_cap * queue->elem_size)), queue->queue, queue->tail * queue->elem_size);
-            queue->tail += old_cap;
+            queue->queue = new_queue;
+            // if head is ahead of tail, we need to move the wrapped-around elements
+            if (queue->head > queue->tail) {
+                size_t wrapped_count = old_cap - queue->head;
+                memmove((void *)((uintptr_t)queue->queue + (old_cap * queue->elem_size)), (void *)((uintptr_t)queue->queue + (queue->head * queue->elem_size)), wrapped_count * queue->elem_size);
+                queue->head = 0;
+                queue->tail = old_cap;
+            }
         }
-        else if (queue->tail == queue->head && queue->count > 0) {
-            queue->tail = old_cap;
+    } else {
+        if (queue->count >= queue->cap) {
+            fprintf(stderr, "queue_enqueue: queue is full %llu\n", queue->cap);
+            return false;
         }
     }
 

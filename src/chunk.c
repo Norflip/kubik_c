@@ -1,4 +1,5 @@
 #include "chunk.h"
+#include "queue.h"
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -9,6 +10,10 @@
 #define ASSERT_CHUNK(c) \
     assert(c != NULL);  \
     assert(c->_canary == C_CANARY)
+
+static inline int get_index(int x, int y, int z) {
+    return u_index_zxy(x + 1, y + 1, z + 1, C_SIZEP);
+}
 
 void chunk_initialize(struct chunk *c, ivec3 pos, enum chunk_flag flags) {
     memset(c, 0, sizeof(struct chunk));
@@ -63,9 +68,7 @@ static bool try_alloc_block_data(struct chunk *c) {
     mutex_lock(&c->lock);
 
     if (c->blocks != NULL) {
-
         mutex_unlock(&c->lock);
-
         return true;
     }
 
@@ -80,61 +83,159 @@ static bool try_alloc_block_data(struct chunk *c) {
     return true;
 }
 
-static void set_padded_blockstate(struct chunk *c, int x, int y, int z, struct block_state value) {
+static inline uint8_t get_boundary_mask(int x, int y, int z, int *count) {
+    uint8_t mask = 0;
+    *count = 0;
+    if (x == C_SIZE - 1) {
+        mask |= (1 << DIR_RIGHT); // +X boundary
+        (*count)++;
+    } else if (x == 0) {
+        mask |= (1 << DIR_LEFT); // -X boundary
+        (*count)++;
+    }
 
+    if (y == C_SIZE - 1) {
+        mask |= (1 << DIR_UP); // +Y boundary
+        (*count)++;
+    } else if (y == 0) {
+        mask |= (1 << DIR_DOWN); // -Y boundary
+        (*count)++;
+    }
+
+    if (z == C_SIZE - 1) {
+        mask |= (1 << DIR_FRONT); // +Z boundary
+        (*count)++;
+    } else if (z == 0) {
+        mask |= (1 << DIR_BACK); // -Z boundary
+        (*count)++;
+    }
+
+    return mask;
+}
+
+// we should probably try and split this up into separate functions
+static void set_padded_blockstate(struct chunk *c, int x, int y, int z, const struct block_state *value) {
     if (!pos_on_border(x, y, z))
         return;
 
-    // seems a bit overkill to make a bitmask for this tbh
-    uint8_t boundary_mask = 0;
-    if (x == C_SIZE - 1)
-        boundary_mask |= (1 << DIR_RIGHT); // +X boundary
-    if (x == 0)
-        boundary_mask |= (1 << DIR_LEFT); // -X boundary
-    if (y == C_SIZE - 1)
-        boundary_mask |= (1 << DIR_UP); // +Y boundary
-    if (y == 0)
-        boundary_mask |= (1 << DIR_DOWN); // -Y boundary
-    if (z == C_SIZE - 1)
-        boundary_mask |= (1 << DIR_FRONT); // +Z boundary
-    if (z == 0)
-        boundary_mask |= (1 << DIR_BACK); // -Z boundary
+    int boundary_count = 0;
+    uint8_t mask = get_boundary_mask(x, y, z, &boundary_count);
+    if (mask == 0 || boundary_count == 0)
+        return;
 
     struct chunk *n;
     for (int face = 0; face < 6; face++) {
         n = c->neighbours[face];
-        if ((boundary_mask & (1 << face)) && n) {
+        if ((mask & (1 << face)) && n) {
+            // chunk_iterator would kinda do the same thing here?
             int tx = x;
             int ty = y;
             int tz = z;
 
-            // Adjust target coordinate for the specific face, slow?
             switch (face) {
             case DIR_RIGHT:
                 tx = -1;
-                break; // +X face
+                break;
             case DIR_LEFT:
                 tx = C_SIZE;
-                break; // -X face
+                break;
             case DIR_UP:
                 ty = -1;
-                break; // +Y face
+                break;
             case DIR_DOWN:
                 ty = C_SIZE;
-                break; // -Y face
+                break;
             case DIR_FRONT:
                 tz = -1;
-                break; // +Z face
+                break;
             case DIR_BACK:
                 tz = C_SIZE;
-                break; // -Z face
+                break;
             }
 
-            if (value.type != BLK_AIR && c->blocks != NULL) {
+            if (c->blocks != NULL) {
                 if (try_alloc_block_data(n)) {
-                    int idx = u_index_zxy(tx + 1, ty + 1, tz + 1, C_SIZEP);
-                    n->blocks[idx] = value;
+                    memcpy(&n->blocks[get_index(tx, ty, tz)], value, sizeof(struct block_state));
                     n->dirty = true;
+                }
+            }
+        }
+    }
+
+    static const int edge_combinations[12][2] = {
+        {DIR_RIGHT, DIR_UP},    {DIR_RIGHT, DIR_DOWN}, // +X edges
+        {DIR_LEFT, DIR_UP},     {DIR_LEFT, DIR_DOWN},  // -X edges
+        {DIR_UP, DIR_FRONT},    {DIR_UP, DIR_BACK},    // +Y edges
+        {DIR_DOWN, DIR_FRONT},  {DIR_DOWN, DIR_BACK},  // -Y edges
+        {DIR_RIGHT, DIR_FRONT}, {DIR_RIGHT, DIR_BACK}, // +X Z edges
+        {DIR_LEFT, DIR_FRONT},  {DIR_LEFT, DIR_BACK}   // -X Z edges
+    };
+
+    static const int corner_combinations[8][3] = {
+        {DIR_RIGHT, DIR_UP, DIR_FRONT},   // +X,+Y,+Z
+        {DIR_RIGHT, DIR_UP, DIR_BACK},    // +X,+Y,-Z
+        {DIR_RIGHT, DIR_DOWN, DIR_FRONT}, // +X,-Y,+Z
+        {DIR_RIGHT, DIR_DOWN, DIR_BACK},  // +X,-Y,-Z
+        {DIR_LEFT, DIR_UP, DIR_FRONT},    // -X,+Y,+Z
+        {DIR_LEFT, DIR_UP, DIR_BACK},     // -X,+Y,-Z
+        {DIR_LEFT, DIR_DOWN, DIR_FRONT},  // -X,-Y,+Z
+        {DIR_LEFT, DIR_DOWN, DIR_BACK}    // -X,-Y,-Z
+    };
+
+    // update edges
+    if (boundary_count >= 2) {
+        for (int i = 0; i < 12; i++) {
+            int face1 = edge_combinations[i][0];
+            int face2 = edge_combinations[i][1];
+
+            if ((mask & (1 << face1)) && (mask & (1 << face2))) {
+                // Calculate neighbour direction
+                int dx = (face1 == DIR_RIGHT) ? 1 : (face1 == DIR_LEFT) ? -1 : 0;
+                int dy = (face1 == DIR_UP || face2 == DIR_UP) ? 1 : (face1 == DIR_DOWN || face2 == DIR_DOWN) ? -1 : 0;
+                int dz = (face1 == DIR_FRONT || face2 == DIR_FRONT) ? 1 : (face1 == DIR_BACK || face2 == DIR_BACK) ? -1 : 0;
+
+                struct chunk *n = find_neighbour(c, dx, dy, dz);
+                if (n) {
+                    int tx = (dx == 1) ? -1 : (dx == -1) ? C_SIZE : x;
+                    int ty = (dy == 1) ? -1 : (dy == -1) ? C_SIZE : y;
+                    int tz = (dz == 1) ? -1 : (dz == -1) ? C_SIZE : z;
+
+                    if (c->blocks != NULL) {
+                        if (try_alloc_block_data(n)) {
+                            memcpy(&n->blocks[get_index(tx, ty, tz)], value, sizeof(struct block_state));
+                            n->dirty = true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // update_corners
+    if (boundary_count >= 3) {
+
+        for (int i = 0; i < 8; i++) {
+            int face1 = corner_combinations[i][0];
+            int face2 = corner_combinations[i][1];
+            int face3 = corner_combinations[i][2];
+
+            if ((mask & (1 << face1)) && (mask & (1 << face2)) && (mask & (1 << face3))) {
+                int dx = (face1 == DIR_RIGHT) ? 1 : -1;
+                int dy = (face2 == DIR_UP) ? 1 : -1;
+                int dz = (face3 == DIR_FRONT) ? 1 : -1;
+
+                struct chunk *n = find_neighbour(c, dx, dy, dz);
+                if (n) {
+                    int tx = (dx == 1) ? -1 : C_SIZE;
+                    int ty = (dy == 1) ? -1 : C_SIZE;
+                    int tz = (dz == 1) ? -1 : C_SIZE;
+
+                    if (c->blocks != NULL) {
+                        if (try_alloc_block_data(n)) {
+                            memcpy(&n->blocks[get_index(tx, ty, tz)], value, sizeof(struct block_state));
+                            n->dirty = true;
+                        }
+                    }
                 }
             }
         }
@@ -155,7 +256,7 @@ bool chunk_set_block(struct chunk *c, int x, int y, int z, block_t value) {
         return false;
     }
 
-    const int index = u_index_zxy(x + 1, y + 1, z + 1, C_SIZEP);
+    const int index = get_index(x, y, z);
     block_t old_value = c->blocks[index].type;
     if (old_value != 0 && value == 0) {
         c->fill_count--;
@@ -163,10 +264,17 @@ bool chunk_set_block(struct chunk *c, int x, int y, int z, block_t value) {
         c->fill_count++;
     }
 
-    struct block_state new_state = {.type = value, .light = 0xFF};
+    const light_t light_level = block_default_light(value);
+    struct block_state new_state = {.type = value, .light = light_level};
     c->blocks[index] = new_state;
+    set_padded_blockstate(c, x, y, z, &new_state);
+
+    if (light_level != 0) {
+        printf("Setting glow block at (%d, %d, %d) in chunk (%d, %d, %d)\n", x, y, z, c->pos.x, c->pos.y, c->pos.z);
+        tmp_floodfill_light(c, x, y, z);
+    }
+
     c->dirty = true;
-    set_padded_blockstate(c, x, y, z, new_state);
     return true;
 }
 
@@ -176,21 +284,11 @@ block_t chunk_get_block(struct chunk *c, int x, int y, int z) {
         return BLK_AIR;
     if (c->blocks == NULL)
         return BLK_AIR;
-    return c->blocks[u_index_zxy(x + 1, y + 1, z + 1, C_SIZEP)].type;
+    return c->blocks[get_index(x, y, z)].type;
 }
 
 bool chunk_block_is_solid(struct chunk *c, int x, int y, int z) {
-    return chunk_get_block(c, x, y, z) != BLK_AIR;
-}
-
-bool chunk_set_light(struct chunk *c, int x, int y, int z, u32 value) {
-    ASSERT_CHUNK(c);
-    if (!pos_inside(x, y, z)) {
-        fprintf(stderr, "chunk_set_light: position (%d, %d, %d) is out of bounds in chunk (%d, %d, %d)\n", x, y, z, c->pos.x, c->pos.y, c->pos.z);
-        return false;
-    }
-
-    return false;
+    return block_is_solid(chunk_get_block(c, x, y, z));
 }
 
 ivec3 chunk_world_pos(struct chunk *c) {
@@ -198,13 +296,11 @@ ivec3 chunk_world_pos(struct chunk *c) {
     return (ivec3){c->pos.x * C_SIZE, c->pos.y * C_SIZE, c->pos.z * C_SIZE};
 }
 
+// FNV-1a hash https://en.wikipedia.org/wiki/Fowler%E2%80%93Noll%E2%80%93Vo_hash_function
 uint32_t chunk_seed(struct chunk *c) {
     ASSERT_CHUNK(c);
-
-    // FNV-1a hash https://en.wikipedia.org/wiki/Fowler%E2%80%93Noll%E2%80%93Vo_hash_function
     const uint32_t prime = 16777619u;
     const uint32_t basis = 2166136261u;
-
     uint32_t hash = basis;
     hash ^= (uint32_t)c->pos.x;
     hash *= prime;
@@ -228,7 +324,7 @@ void chunk_set_neighbour(struct chunk *c, struct chunk *neighbour, int face) {
         neighbour->neighbours[opposite_dir(face)] = c;
 }
 
-static struct mesh_quad make_quad(int x, int y, int z, int face, block_t block, u32 light, u8 ao[4], bool flipped) {
+static struct mesh_quad make_quad(int x, int y, int z, int face, block_t block, light_t light, u8 ao[4], bool flipped) {
     struct mesh_quad quad = {0};
     quad.pos_face = (x & 0x3F) | ((y & 0x3F) << 6) | ((z & 0x3F) << 12);
     quad.pos_face |= (face & 0x7) << 18;
@@ -285,7 +381,7 @@ size_t chunk_generate_mesh_data(struct chunk *c, void *buffer) {
     for (int y = 0; y < C_SIZE; y++) {
         for (int x = 0; x < C_SIZE; x++) {
             for (int z = 0; z < C_SIZE; z++) {
-                block_t block = chunk_get_block(c, x, y, z);
+                const block_t block = chunk_get_block(c, x, y, z);
                 if (!block_is_solid(block))
                     continue;
 
@@ -295,10 +391,13 @@ size_t chunk_generate_mesh_data(struct chunk *c, void *buffer) {
                     int oy = y + normal.y;
                     int oz = z + normal.z;
 
-                    if (block_create_face(block, face, chunk_get_block(c, ox, oy, oz))) {
+                    const block_t adjacent_block = chunk_get_block(c, ox, oy, oz);
+                    if (block_create_face(block, face, adjacent_block)) {
                         bool flip = false;
                         get_face_ao(c, x, y, z, face, ao, &flip);
-                        struct mesh_quad quad = make_quad(x, y, z, face, block, 0xFF, ao, flip);
+
+                        light_t light = c->blocks[get_index(ox, oy, oz)].light;
+                        struct mesh_quad quad = make_quad(x, y, z, face, block, light, ao, flip);
                         quads[added++] = quad;
                     }
                 }
@@ -311,48 +410,180 @@ size_t chunk_generate_mesh_data(struct chunk *c, void *buffer) {
     return added;
 }
 
-size_t chunk_generate_face_mesh_data(struct chunk *c, int face, void *buffer) {
+struct light_node {
+    iterator_t it;
+    light_t light;
+};
+
+static inline struct block_state *get_block_state_ptr(struct chunk *c, int x, int y, int z) {
     ASSERT_CHUNK(c);
-    assert(buffer != NULL);
+    if (!pos_inside_padded(x, y, z))
+        return NULL;
+    if (c->blocks == NULL)
+        return NULL;
+    return &c->blocks[get_index(x, y, z)];
+}
 
-    if (c->fill_count <= 0 || !c->dirty)
+static inline bool is_solid_blockstate(struct block_state *state) {
+    return state != NULL && block_is_solid(state->type);
+}
+
+static inline bool light_lessthan(light_t a, light_t b) {
+    return a < b;
+}
+
+static inline light_t light_decrement(light_t light) {
+    if (light == 0)
         return 0;
+    return light - (0xFF / 16);
+}
 
-    if (!c->blocks) {
-        c->quad_count = 0;
-        c->dirty = false;
-        return 0;
-    }
+void tmp_floodfill_light(struct chunk *c, int x, int y, int z) {
+    queue_t q = {0};
+    queue_init(&q, C_SIZEP3, sizeof(struct light_node));
 
-    struct mesh_quad *quads = buffer;
-    size_t added = 0;
-    u8 ao[4] = {0, 0, 0, 0};
-    for (int y = 0; y < C_SIZE; y++) {
-        for (int x = 0; x < C_SIZE; x++) {
-            for (int z = 0; z < C_SIZE; z++) {
+    struct light_node node;
+    node.it = iterator_make(c, x, y, z);
+    node.light = c->blocks[get_index(x, y, z)].light;
+    printf("Starting light update from (%d, %d, %d) in chunk (%d, %d, %d) with light %u\n", x, y, z, c->pos.x, c->pos.y, c->pos.z, node.light);
+    queue_enqueue(&q, &node);
 
-                u32 light = 0;
-                if (x == 0 || y == 0 || z == 0)
-                    light = 1;
+    struct light_node current;
+    while (!queue_is_empty(&q)) {
+        if (!queue_dequeue(&q, &current))
+            break;
 
-                block_t block = chunk_get_block(c, x, y, z);
-                if (!block_is_solid(block))
-                    continue;
+        struct block_state *current_state = iterator_get_block_state_ptr(&current.it);
+        if (current_state == NULL) {
+            fprintf(stderr, "tmp_floodfill_light: current state is NULL at (%d, %d, %d) in chunk (%d, %d, %d)\n", current.it.x, current.it.y, current.it.z, current.it.chunk->pos.x, current.it.chunk->pos.y, current.it.chunk->pos.z);
+            continue;
+        }
 
-                ivec3 normal = FACE_NORMALS[face];
-                int ox = x + normal.x;
-                int oy = y + normal.y;
-                int oz = z + normal.z;
-                if (block_create_face(block, face, chunk_get_block(c, ox, oy, oz))) {
-                    bool flip = false;
-                    get_face_ao(c, x, y, z, face, ao, &flip);
-                    quads[added++] = make_quad(x, y, z, face, block, light, ao, flip);
+        current_state->light = current.light;
+        light_t declvl = light_decrement(current.light);
+        if (declvl == 0)
+            continue;
+
+        for (int face = 0; face < 6; face++) {
+            iterator_t it = current.it;
+            iterator_move(&it, face);
+
+            struct block_state *neighbour_state = iterator_get_block_state_ptr(&it);
+            if (current_state != NULL && !is_solid_blockstate(neighbour_state)) {
+                if (light_lessthan(neighbour_state->light, declvl)) {
+                    neighbour_state->light = declvl;
+                    set_padded_blockstate(it.chunk, it.x, it.y, it.z, neighbour_state);
+                    it.chunk->dirty = true;
+                    struct light_node neighbour_node;
+                    neighbour_node.it = it;
+                    neighbour_node.light = declvl;
+                    queue_enqueue(&q, &neighbour_node);
                 }
             }
         }
     }
 
-    c->quad_count = added;
-    c->dirty = false;
-    return added;
+    queue_destroy(&q);
+}
+
+iterator_t iterator_make(struct chunk *c, int x, int y, int z) {
+    iterator_t it;
+    it.chunk = c;
+    it.x = x;
+    it.y = y;
+    it.z = z;
+    return it;
+}
+
+void iterator_up(iterator_t *it) {
+    it->y++;
+    if (it->y >= C_SIZE) {
+        it->y = 0;
+        it->chunk = it->chunk->neighbours[DIR_UP];
+    }
+}
+
+void iterator_down(iterator_t *it) {
+    it->y--;
+    if (it->y < 0) {
+        it->y = C_SIZE - 1;
+        it->chunk = it->chunk->neighbours[DIR_DOWN];
+    }
+}
+
+void iterator_move(iterator_t *it, enum dir dir) {
+    switch (dir) {
+    case DIR_UP:
+        iterator_up(it);
+        break;
+    case DIR_DOWN:
+        iterator_down(it);
+        break;
+    case DIR_LEFT:
+        it->x--;
+        if (it->x < 0) {
+            it->x = C_SIZE - 1;
+            it->chunk = it->chunk->neighbours[DIR_LEFT];
+        }
+        break;
+    case DIR_RIGHT:
+        it->x++;
+        if (it->x >= C_SIZE) {
+            it->x = 0;
+            it->chunk = it->chunk->neighbours[DIR_RIGHT];
+        }
+        break;
+    case DIR_FRONT:
+        it->z++;
+        if (it->z >= C_SIZE) {
+            it->z = 0;
+            it->chunk = it->chunk->neighbours[DIR_FRONT];
+        }
+        break;
+    case DIR_BACK:
+        it->z--;
+        if (it->z < 0) {
+            it->z = C_SIZE - 1;
+            it->chunk = it->chunk->neighbours[DIR_BACK];
+        }
+        break;
+    default:
+        break;
+    }
+}
+
+void iterator_update(iterator_t *it) {
+    if (it->y < 0) {
+        it->y = C_SIZE - 1;
+        it->chunk = it->chunk->neighbours[DIR_DOWN];
+    } else if (it->y >= C_SIZE) {
+        it->y = 0;
+        it->chunk = it->chunk->neighbours[DIR_UP];
+    }
+
+    if (it->x < 0) {
+        it->x = C_SIZE - 1;
+        it->chunk = it->chunk->neighbours[DIR_LEFT];
+    } else if (it->x >= C_SIZE) {
+        it->x = 0;
+        it->chunk = it->chunk->neighbours[DIR_RIGHT];
+    }
+
+    if (it->z >= C_SIZE) {
+        it->z = 0;
+        it->chunk = it->chunk->neighbours[DIR_FRONT];
+    } else if (it->z < 0) {
+        it->z = C_SIZE - 1;
+        it->chunk = it->chunk->neighbours[DIR_BACK];
+    }
+}
+
+bool iterator_is_valid(iterator_t *it) {
+    return it->chunk != NULL && pos_inside(it->x, it->y, it->z);
+}
+
+struct block_state *iterator_get_block_state_ptr(iterator_t *it) {
+    if (!iterator_is_valid(it))
+        return NULL;
+    return get_block_state_ptr(it->chunk, it->x, it->y, it->z);
 }

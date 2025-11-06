@@ -9,6 +9,7 @@ typedef struct queue {
     u64 elem_size;
     u64 head, tail;
     u64 count, cap;
+    bool allow_resizing;
 } queue_t;
 
 void queue_init(queue_t *queue, u64 capacity, u64 elem_size);

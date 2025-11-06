@@ -81,6 +81,10 @@ bool is_quad_flipped (quad q) {
     return bool((q.pos_face >> 29) & 0x1);
 }
 
+void unpack_light (quad q, out float light_value){
+    light_value = float(q.light & 0xFF) / 0xFF;
+}
+
 void main () {
     const uint idx = gl_VertexID;
     quad q = quads[idx / 6];
@@ -107,7 +111,7 @@ void main () {
     outData.texIndex = q.tex;
     outData.face = face;
     outData.tint = per_chunk_data[gl_DrawID].tint;
-    outData.light_test = clamp(float(q.light), 0.0f, 1.0f);
+    outData.light_test = float(q.light & 0xFF) / 0xFF;
     
     //float((q.light >> (corner_idx * 8)) & 0xFF) / 255.0;
     //uint uv_corner_offset = rng_value(idx / 6) % 4;
