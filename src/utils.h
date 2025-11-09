@@ -36,7 +36,7 @@ typedef uint32_t col32_t;
 #define C32_CLEAR 0xFFFFFF00
 
 // directions
-enum dir { DIR_RIGHT = 0, DIR_LEFT, DIR_UP, DIR_DOWN, DIR_FRONT, DIR_BACK };
+enum dir { DIR_RIGHT = 0, DIR_LEFT, DIR_UP, DIR_DOWN, DIR_FRONT, DIR_BACK, DIR_COUNT };
 #define opposite_dir(i) (i + (!((i) % 2) ? 1 : -1))
 static const ivec3 FACE_NORMALS[6] = {{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}};
 

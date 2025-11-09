@@ -33,7 +33,7 @@ struct world {
     int seed;
     int num_worker_threads;
     bool flatgrass; // should probably be a flag 
-
+    int load_radius;
     struct chunk **chunks;
     int chunk_count, chunk_cap;
     struct hunk **hunks;
@@ -55,8 +55,8 @@ struct world_hit {
     bool did_hit;
 };
 
-void world_init(struct world *w, int seed, int num_worker_threads, bool flatgrass);
-void world_generate_initial(struct world *w, int load_radius);
+void world_init(struct world *w, int seed, int num_worker_threads, int load_radius, bool flatgrass);
+void world_generate_initial(struct world *w);
 
 struct chunk *world_get_chunk(struct world *w, int x, int y, int z);
 void world_set_block(struct world *w, int x, int y, int z, block_t block);

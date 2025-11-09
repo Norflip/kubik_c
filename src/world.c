@@ -188,7 +188,7 @@ static void gen_chunk_mesh_fn(struct chunk *c, struct world *w, struct work *sel
     assert(c != NULL);
 
     // check the neighbours
-    for (int face = 0; face < 6; face++) {
+    for (int face = 0; face < DIR_COUNT; face++) {
         struct chunk *n = c->neighbours[face];
         if (n && n->state < C_STATE_GENERATED) {
             // printf("deferring meshing of chunk (%d, %d, %d) because neighbour (%d, %d, %d) is not ready\n", c->x, c->y, c->z, n->x, n->y, n->z);
@@ -200,7 +200,7 @@ static void gen_chunk_mesh_fn(struct chunk *c, struct world *w, struct work *sel
     }
 
     c->state = C_STATE_MESHING;
-    void *quads = malloc(C_SIZE3 * 6 * sizeof(struct mesh_quad));
+    void *quads = malloc(C_SIZE3 * DIR_COUNT * sizeof(struct mesh_quad));
     size_t quad_count = chunk_generate_mesh_data(c, quads);
 
     if (quad_count > 0) {
@@ -261,7 +261,7 @@ struct chunk *world_get_chunk(struct world *w, int x, int y, int z) {
     return hunk->chunks[index];
 }
 
-static void set_block_internal(struct world *w, struct chunk *c, int lx, int ly, int lz, block_t block) {
+static void set_block_internal(struct world *w, struct chunk *c, int lx, int ly, int lz, block_t block, bool player_triggered) {
     if (!c) {
         fprintf(stderr, "set_block_internal: chunk is NULL\n");
         return;
@@ -271,7 +271,7 @@ static void set_block_internal(struct world *w, struct chunk *c, int lx, int ly,
     assert(ly >= 0 && ly < C_SIZE);
     assert(lz >= 0 && lz < C_SIZE);
 
-    if (!chunk_set_block(c, lx, ly, lz, block)) {
+    if (!chunk_set_block(c, lx, ly, lz, block, player_triggered)) {
         return;
     }
 
@@ -307,12 +307,15 @@ static void set_block_internal(struct world *w, struct chunk *c, int lx, int ly,
     }
 }
 
-void world_init(struct world *w, int seed, int num_worker_threads, bool flatgrass) {
+void world_init(struct world *w, int seed, int num_worker_threads, int load_radius, bool flatgrass) {
     memset(w, 0, sizeof(struct world));
 
     const int SIZE = 256;
     w->seed = seed;
     w->flatgrass = flatgrass;
+    w->load_radius = load_radius;
+    if (w->load_radius <= 0)
+        w->load_radius = 1;
 
     w->chunk_count = 0;
     w->chunk_cap = SIZE * SIZE * H_SIZE;
@@ -341,7 +344,7 @@ void world_init(struct world *w, int seed, int num_worker_threads, bool flatgras
     w->batch = mesh_batch_init("chunk_mesh_batch", MB(32), KB(2), H_SIZE3, sizeof(struct instance_data));
 
     // work queue
-    pqueue_init(&(w->work_que), 512, sizeof(struct work), work_cmp);
+    w->work_que = pqueue_make(sizeof(struct work), 512, work_cmp);
     mutex_init(&w->work_lock);
     cond_init(&w->work_cond);
     printf("World initialized with seed %d\n", seed);
@@ -376,12 +379,10 @@ static int get_chunk_column_priority(int x, int z, int center_x, int center_z) {
     return (dx * dx) + (dz * dz);
 }
 
-void world_generate_initial(struct world *w, int load_radius) {
+void world_generate_initial(struct world *w) {
     assert(w->initialized);
-    if (load_radius <= 0)
-        load_radius = 1;
 
-    const int size = (1 + (load_radius + 1) * 2);
+    const int size = (1 + (w->load_radius + 1) * 2);
     int t = size;
     int max_iter = t * t;
 
@@ -424,7 +425,7 @@ void world_generate_initial(struct world *w, int load_radius) {
 
     for (int i = 0; i < w->chunk_count; i++) {
         struct chunk *c = w->chunks[i];
-        for (int face = 0; face < 6; face++) {
+        for (int face = 0; face < DIR_COUNT; face++) {
             int dx = c->pos.x + FACE_NORMALS[face].x;
             int dy = c->pos.y + FACE_NORMALS[face].y;
             int dz = c->pos.z + FACE_NORMALS[face].z;
@@ -439,7 +440,7 @@ void world_generate_initial(struct world *w, int load_radius) {
         ivec2 col = columns[i];
         const int ax = abs(col.x);
         const int az = abs(col.y);
-        bool in_meshing_dist = (ax > az ? ax : az) <= load_radius;
+        bool in_meshing_dist = (ax > az ? ax : az) <= w->load_radius;
         push_column_work(w, col.x, col.y, 0, H_SIZE - 1, get_chunk_column_priority(col.x, col.y, 0, 0), in_meshing_dist);
     }
 
@@ -476,11 +477,11 @@ void world_set_block(struct world *w, int x, int y, int z, block_t block) {
         return;
     }
 
-    set_block_internal(w, c, lx, ly, lz, block);
+    set_block_internal(w, c, lx, ly, lz, block, true);
 
     // check if on border
     if (pos_on_border(lx, ly, lz)) {
-        for (int face = 0; face < 6; face++) {
+        for (int face = 0; face < DIR_COUNT; face++) {
             if (is_on_face(lx, ly, lz, face)) {
                 struct chunk *neighbour = c->neighbours[face];
                 if (neighbour) {
@@ -652,7 +653,7 @@ bool world_trace(struct world *w, vec3 ro, vec3 rd, float max_distance, struct w
 }
 
 static void validate_chunk_neighbour_sync(struct chunk *c) {
-    for (int face = 0; face < 6; face++) {
+    for (int face = 0; face < DIR_COUNT; face++) {
         struct chunk *n = c->neighbours[face];
         if (!n)
             continue;
@@ -870,7 +871,7 @@ static void gen_chunk_base(struct world *w, struct chunk *c) {
                     block = BLK_OCEAN;
                 }
 
-                set_block_internal(w, c, x, y, z, block);
+                set_block_internal(w, c, x, y, z, block, false);
             }
         }
     }
@@ -888,7 +889,7 @@ static void gen_chunk_base_flatgrass(struct world *w, struct chunk *c) {
                 } else if (wy < flatgrass_height) {
                     block = BLK_STONE;
                 }
-                set_block_internal(w, c, x, y, z, block);
+                set_block_internal(w, c, x, y, z, block, false);
             }
         }
     }
@@ -901,7 +902,7 @@ static inline bool check_air_above(iterator_t *it, int n) {
         struct block_state *bs = iterator_get_block_state_ptr(it);
         if (bs == NULL)
             return true;
-        if (bs->type != BLK_AIR)
+        if (bs->block != BLK_AIR)
             return false;
         iterator_up(it);
     }
@@ -941,7 +942,7 @@ static void gen_chunk_surface(struct world *w, struct chunk *c) {
                 }
 
                 // would be the first stone in the column
-                // check if we have 8 blocks of air above
+                // check if we have required_air_above blocks of air above
                 // if so it's a surface block and we can replace it with grass and move down with some dirt
                 iterator_t pos_a = iterator_make(c, x, y, z);
 
@@ -952,7 +953,7 @@ static void gen_chunk_surface(struct world *w, struct chunk *c) {
                         break;
                 }
 
-                set_block_internal(w, c, x, y, z, surface_block);
+                set_block_internal(w, c, x, y, z, surface_block, false);
                 float dirt_t = fnlGetNoise2D(&dirt_state, (c->pos.x * C_SIZE + x) * 0.5f, (c->pos.z * C_SIZE + z) * 0.5f);
                 dirt_t = (dirt_t + 1.0f) * 0.5f;
                 int dirt_depth = min_dirt_depth + (int)((max_dirt_depth - min_dirt_depth) * u_clamp(dirt_t, 0.0f, 1.0f));
@@ -966,7 +967,7 @@ static void gen_chunk_surface(struct world *w, struct chunk *c) {
                     block_t b = chunk_get_block(pos_b.chunk, pos_b.x, pos_b.y, pos_b.z);
                     if (b != BLK_STONE)
                         break;
-                    set_block_internal(w, pos_b.chunk, pos_b.x, pos_b.y, pos_b.z, subsurface_block);
+                    set_block_internal(w, pos_b.chunk, pos_b.x, pos_b.y, pos_b.z, subsurface_block, false);
                     iterator_down(&pos_b);
                 }
                 break;

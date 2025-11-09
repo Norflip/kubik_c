@@ -3,24 +3,25 @@
 #include <stdlib.h>
 #include <string.h>
 
-// FIFO queueUE IMPLEMENTATION
-void queue_init(queue_t *queue, u64 capacity, u64 elem_size) {
-    memset(queue, 0, sizeof(queue_t));
-    queue->cap = 2;
-    while (queue->cap < capacity)
-        queue->cap <<= 1;
-
-    queue->queue = malloc(queue->cap * elem_size);
-    if (!queue->queue) {
+// FIFO QUEUE IMPLEMENTATION
+queue_t queue_make(u64 stride, u64 capacity) {
+    queue_t queue;
+    memset(&queue, 0, sizeof(queue_t));
+    queue.cap = 2;
+    while (queue.cap < capacity)
+        queue.cap <<= 1;
+    queue.queue = malloc(queue.cap * stride);
+    if (!queue.queue) {
         fprintf(stderr, "queue_create: failed to allocate memory for queue\n");
         exit(EXIT_FAILURE);
     }
 
-    queue->elem_size = elem_size;
-    queue->count = 0;
-    queue->head = 0;
-    queue->tail = 0;
-    queue->allow_resizing = false;
+    queue.stride = stride;
+    queue.count = 0;
+    queue.head = 0;
+    queue.tail = 0;
+    queue.allow_resizing = false;
+    return queue;
 }
 
 void queue_destroy(queue_t *queue) {
@@ -33,7 +34,7 @@ bool queue_enqueue(queue_t *queue, const void *elem) {
         if (queue->count >= queue->cap) {
             u64 old_cap = queue->cap;
             queue->cap <<= 1;
-            void *new_queue = realloc(queue->queue, queue->cap * queue->elem_size);
+            void *new_queue = realloc(queue->queue, queue->cap * queue->stride);
             if (!new_queue) {
                 fprintf(stderr, "queue_enqueue: failed to resize queue\n");
                 return false;
@@ -43,7 +44,7 @@ bool queue_enqueue(queue_t *queue, const void *elem) {
             // if head is ahead of tail, we need to move the wrapped-around elements
             if (queue->head > queue->tail) {
                 size_t wrapped_count = old_cap - queue->head;
-                memmove((void *)((uintptr_t)queue->queue + (old_cap * queue->elem_size)), (void *)((uintptr_t)queue->queue + (queue->head * queue->elem_size)), wrapped_count * queue->elem_size);
+                memmove((void *)((uintptr_t)queue->queue + (old_cap * queue->stride)), (void *)((uintptr_t)queue->queue + (queue->head * queue->stride)), wrapped_count * queue->stride);
                 queue->head = 0;
                 queue->tail = old_cap;
             }
@@ -55,17 +56,17 @@ bool queue_enqueue(queue_t *queue, const void *elem) {
         }
     }
 
-    memcpy((void *)((uintptr_t)queue->queue + (queue->tail * queue->elem_size)), elem, queue->elem_size);
+    memcpy((void *)((uintptr_t)queue->queue + (queue->tail * queue->stride)), elem, queue->stride);
     queue->tail = (queue->tail + 1) % queue->cap;
     queue->count++;
     return true;
 }
 
 bool queue_dequeue(queue_t *queue, void *out_elem) {
-    if (queue->count == 0) {
+    if (queue->count <= 0) {
         return false;
     }
-    memcpy(out_elem, (void *)((uintptr_t)queue->queue + (queue->head * queue->elem_size)), queue->elem_size);
+    memcpy(out_elem, (void *)((uintptr_t)queue->queue + (queue->head * queue->stride)), queue->stride);
     queue->head = (queue->head + 1) % queue->cap;
     queue->count--;
     return true;
@@ -75,7 +76,7 @@ bool queue_peek(const queue_t *queue, void *out_elem) {
     if (queue->count == 0) {
         return false;
     }
-    memcpy(out_elem, (void *)((uintptr_t)queue->queue + (queue->head * queue->elem_size)), queue->elem_size);
+    memcpy(out_elem, (void *)((uintptr_t)queue->queue + (queue->head * queue->stride)), queue->stride);
     return true;
 }
 
@@ -83,7 +84,7 @@ u64 queue_size(const queue_t *queue) {
     return queue->count;
 }
 
-bool queue_is_empty(const queue_t *queue) {
+bool queue_empty(const queue_t *queue) {
     return queue->count == 0;
 }
 
@@ -129,26 +130,23 @@ static void pqueueify_down(struct pqueue *pqueue, size_t index) {
     }
 }
 
-void pqueue_init(pqueue_t *pqueue, u64 capacity, u64 elem_size, int (*cmp)(const void *a, const void *b)) {
-    pqueue->pqueue = malloc(capacity * elem_size);
-    if (!pqueue->pqueue) {
-        fprintf(stderr, "pqueue_create: failed to allocate memory for pqueue\n");
+pqueue_t pqueue_make(u64 stride, u64 capacity, int (*cmp)(const void *a, const void *b)) {
+    pqueue_t pqueue;
+    pqueue.cap = 2;
+    while (pqueue.cap < capacity)
+        pqueue.cap <<= 1;
+
+    pqueue.pqueue = malloc(pqueue.cap * stride + stride);
+    if (!pqueue.pqueue) {
+        fprintf(stderr, "pqueue_create: failed to allocate memory for pqueue and temp storage\n");
         exit(EXIT_FAILURE);
     }
 
-    pqueue->_temp = malloc(elem_size);
-    if (!pqueue->_temp) {
-        fprintf(stderr, "pqueue_create: failed to allocate memory for pqueue temp storage\n");
-        free(pqueue->pqueue);
-        exit(EXIT_FAILURE);
-    }
-
-    pqueue->cmp = cmp;
-    pqueue->elem_size = elem_size;
-    pqueue->cap = 2;
-    while (pqueue->cap < capacity)
-        pqueue->cap <<= 1;
-    pqueue->count = 0;
+    pqueue._temp = (void *)((uintptr_t)pqueue.pqueue + pqueue.cap * stride);
+    pqueue.cmp = cmp;
+    pqueue.elem_size = stride;
+    pqueue.count = 0;
+    return pqueue;
 }
 
 void pqueue_destroy(pqueue_t *pqueue) {

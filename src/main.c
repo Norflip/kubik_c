@@ -123,8 +123,8 @@ int main() {
     cam_set_transform(&camera, (vec3){8.0f, 110.0f, 8.0f}, quat_identity());
 
     memset(&world, 0, sizeof(struct world));
-    world_init(&world, 0, 8, false);
-    world_generate_initial(&world, 12);
+    world_init(&world, 0, 8, 12, true);
+    world_generate_initial(&world);
 
     // start time
     bool track_gen_time = true;

@@ -43,7 +43,7 @@ struct instance_data {
 typedef uint32_t light_t;
 
 struct block_state {
-    block_t type;
+    block_t block;
     light_t light;
 };
 
@@ -68,7 +68,7 @@ struct chunk {
 };
 
 void chunk_initialize(struct chunk *c, ivec3 pos, enum chunk_flag flags);
-bool chunk_set_block(struct chunk *c, int x, int y, int z, block_t value);
+bool chunk_set_block(struct chunk *c, int x, int y, int z, block_t block, bool player_triggered);
 block_t chunk_get_block(struct chunk *c, int x, int y, int z);
 bool chunk_block_is_solid(struct chunk *c, int x, int y, int z);
 ivec3 chunk_world_pos(struct chunk *c);
@@ -76,7 +76,8 @@ uint32_t chunk_seed(struct chunk *c);
 
 void chunk_set_neighbour(struct chunk *c, struct chunk *neighbour, int face);
 size_t chunk_generate_mesh_data(struct chunk *c, void *buffer);
-void tmp_floodfill_light(struct chunk *c, int x, int y, int z);
+void add_light_tmp(struct chunk *c, int x, int y, int z);
+void rem_light_tmp(struct chunk *c, int x, int y, int z, light_t old_level);
 
 //
 typedef struct {

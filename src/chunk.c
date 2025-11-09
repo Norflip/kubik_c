@@ -31,7 +31,7 @@ void chunk_initialize(struct chunk *c, ivec3 pos, enum chunk_flag flags) {
 }
 
 static struct chunk *get_neighbour(struct chunk *c, int face) {
-    if (c == NULL || face < 0 || face >= 6)
+    if (c == NULL || face < 0 || face >= DIR_COUNT)
         return NULL;
     return c->neighbours[face];
 }
@@ -114,7 +114,7 @@ static inline uint8_t get_boundary_mask(int x, int y, int z, int *count) {
 }
 
 // we should probably try and split this up into separate functions
-static void set_padded_blockstate(struct chunk *c, int x, int y, int z, const struct block_state *value) {
+static void set_padded_blockstate(struct chunk *c, int x, int y, int z, struct block_state state) {
     if (!pos_on_border(x, y, z))
         return;
 
@@ -124,7 +124,7 @@ static void set_padded_blockstate(struct chunk *c, int x, int y, int z, const st
         return;
 
     struct chunk *n;
-    for (int face = 0; face < 6; face++) {
+    for (int face = 0; face < DIR_COUNT; face++) {
         n = c->neighbours[face];
         if ((mask & (1 << face)) && n) {
             // chunk_iterator would kinda do the same thing here?
@@ -155,7 +155,9 @@ static void set_padded_blockstate(struct chunk *c, int x, int y, int z, const st
 
             if (c->blocks != NULL) {
                 if (try_alloc_block_data(n)) {
-                    memcpy(&n->blocks[get_index(tx, ty, tz)], value, sizeof(struct block_state));
+                    // memcpy(&n->blocks[get_index(tx, ty, tz)], value, sizeof(struct block_state));
+                    n->blocks[get_index(tx, ty, tz)] = state;
+
                     n->dirty = true;
                 }
             }
@@ -202,7 +204,9 @@ static void set_padded_blockstate(struct chunk *c, int x, int y, int z, const st
 
                     if (c->blocks != NULL) {
                         if (try_alloc_block_data(n)) {
-                            memcpy(&n->blocks[get_index(tx, ty, tz)], value, sizeof(struct block_state));
+                            // memcpy(&n->blocks[get_index(tx, ty, tz)], value, sizeof(struct block_state));
+                            n->blocks[get_index(tx, ty, tz)] = state;
+
                             n->dirty = true;
                         }
                     }
@@ -232,7 +236,8 @@ static void set_padded_blockstate(struct chunk *c, int x, int y, int z, const st
 
                     if (c->blocks != NULL) {
                         if (try_alloc_block_data(n)) {
-                            memcpy(&n->blocks[get_index(tx, ty, tz)], value, sizeof(struct block_state));
+                            // memcpy(&n->blocks[get_index(tx, ty, tz)], value, sizeof(struct block_state));
+                            n->blocks[get_index(tx, ty, tz)] = state;
                             n->dirty = true;
                         }
                     }
@@ -242,36 +247,37 @@ static void set_padded_blockstate(struct chunk *c, int x, int y, int z, const st
     }
 }
 
-bool chunk_set_block(struct chunk *c, int x, int y, int z, block_t value) {
+bool chunk_set_block(struct chunk *c, int x, int y, int z, block_t block, bool player_triggered) {
     ASSERT_CHUNK(c);
     if (!pos_inside(x, y, z)) {
         fprintf(stderr, "chunk_set_block: position (%d, %d, %d) is out of bounds in chunk (%d, %d, %d)\n", x, y, z, c->pos.x, c->pos.y, c->pos.z);
         return false;
     }
 
-    if (value == BLK_AIR && c->blocks == NULL)
+    if (block == BLK_AIR && c->blocks == NULL)
         return true;
 
-    if (!try_alloc_block_data(c)) {
+    if (!try_alloc_block_data(c))
         return false;
-    }
 
     const int index = get_index(x, y, z);
-    block_t old_value = c->blocks[index].type;
-    if (old_value != 0 && value == 0) {
+    struct block_state old_state = c->blocks[index];
+    if (old_state.block != 0 && block == 0) {
         c->fill_count--;
-    } else if (old_value == 0 && value != 0) {
+    } else if (old_state.block == 0 && block != 0) {
         c->fill_count++;
     }
 
-    const light_t light_level = block_default_light(value);
-    struct block_state new_state = {.type = value, .light = light_level};
+    const light_t light_level = block_default_light(block);
+    struct block_state new_state = {.block = block, .light = light_level};
     c->blocks[index] = new_state;
-    set_padded_blockstate(c, x, y, z, &new_state);
+    set_padded_blockstate(c, x, y, z, new_state);
 
-    if (light_level != 0) {
-        printf("Setting glow block at (%d, %d, %d) in chunk (%d, %d, %d)\n", x, y, z, c->pos.x, c->pos.y, c->pos.z);
-        tmp_floodfill_light(c, x, y, z);
+    if (player_triggered && old_state.light != light_level) {
+        if (old_state.light > 0)
+            rem_light_tmp(c, x, y, z, old_state.light);
+        if (light_level > 0)
+            add_light_tmp(c, x, y, z);
     }
 
     c->dirty = true;
@@ -284,7 +290,7 @@ block_t chunk_get_block(struct chunk *c, int x, int y, int z) {
         return BLK_AIR;
     if (c->blocks == NULL)
         return BLK_AIR;
-    return c->blocks[get_index(x, y, z)].type;
+    return c->blocks[get_index(x, y, z)].block;
 }
 
 bool chunk_block_is_solid(struct chunk *c, int x, int y, int z) {
@@ -313,7 +319,7 @@ uint32_t chunk_seed(struct chunk *c) {
 
 void chunk_set_neighbour(struct chunk *c, struct chunk *neighbour, int face) {
     ASSERT_CHUNK(c);
-    assert(face >= 0 && face < 6);
+    assert(face >= 0 && face < DIR_COUNT);
     if (c == neighbour) {
         fprintf(stderr, "chunk_link: chunk is linking to itself\n");
         return;
@@ -341,12 +347,12 @@ static struct mesh_quad make_quad(int x, int y, int z, int face, block_t block, 
 #define ao_value(s1, c, s2) ((solids[s1] && solids[s2]) ? 1 : (3 - (solids[s1] + solids[s2] + solids[c])))
 
 static void get_face_ao(struct chunk *c, int x, int y, int z, int face, uint8_t *ao_out, bool *flip) {
-    assert(face >= 0 && face < 6);
+    assert(face >= 0 && face < DIR_COUNT);
     // counter clockwise
     // took fucking ages
-    const ivec3 ao_offsets[6][8] = {{{1, -1, -1}, {1, -1, 0}, {1, -1, 1}, {1, 0, 1}, {1, 1, 1}, {1, 1, 0}, {1, 1, -1}, {1, 0, -1}}, {{-1, -1, 1}, {-1, -1, 0}, {-1, -1, -1}, {-1, 0, -1}, {-1, 1, -1}, {-1, 1, 0}, {-1, 1, 1}, {-1, 0, 1}},
-                                    {{-1, 1, -1}, {0, 1, -1}, {1, 1, -1}, {1, 1, 0}, {1, 1, 1}, {0, 1, 1}, {-1, 1, 1}, {-1, 1, 0}}, {{-1, -1, -1}, {-1, -1, 0}, {-1, -1, 1}, {0, -1, 1}, {1, -1, 1}, {1, -1, 0}, {1, -1, -1}, {0, -1, -1}},
-                                    {{1, -1, 1}, {0, -1, 1}, {-1, -1, 1}, {-1, 0, 1}, {-1, 1, 1}, {0, 1, 1}, {1, 1, 1}, {1, 0, 1}}, {{-1, -1, -1}, {0, -1, -1}, {1, -1, -1}, {1, 0, -1}, {1, 1, -1}, {0, 1, -1}, {-1, 1, -1}, {-1, 0, -1}}};
+    const ivec3 ao_offsets[DIR_COUNT][8] = {{{1, -1, -1}, {1, -1, 0}, {1, -1, 1}, {1, 0, 1}, {1, 1, 1}, {1, 1, 0}, {1, 1, -1}, {1, 0, -1}}, {{-1, -1, 1}, {-1, -1, 0}, {-1, -1, -1}, {-1, 0, -1}, {-1, 1, -1}, {-1, 1, 0}, {-1, 1, 1}, {-1, 0, 1}},
+                                            {{-1, 1, -1}, {0, 1, -1}, {1, 1, -1}, {1, 1, 0}, {1, 1, 1}, {0, 1, 1}, {-1, 1, 1}, {-1, 1, 0}}, {{-1, -1, -1}, {-1, -1, 0}, {-1, -1, 1}, {0, -1, 1}, {1, -1, 1}, {1, -1, 0}, {1, -1, -1}, {0, -1, -1}},
+                                            {{1, -1, 1}, {0, -1, 1}, {-1, -1, 1}, {-1, 0, 1}, {-1, 1, 1}, {0, 1, 1}, {1, 1, 1}, {1, 0, 1}}, {{-1, -1, -1}, {0, -1, -1}, {1, -1, -1}, {1, 0, -1}, {1, 1, -1}, {0, 1, -1}, {-1, 1, -1}, {-1, 0, -1}}};
     bool solids[8];
     for (int i = 0; i < 8; i++) {
         int ox = x + ao_offsets[face][i].x;
@@ -385,7 +391,7 @@ size_t chunk_generate_mesh_data(struct chunk *c, void *buffer) {
                 if (!block_is_solid(block))
                     continue;
 
-                for (int face = 0; face < 6; face++) {
+                for (int face = 0; face < DIR_COUNT; face++) {
                     ivec3 normal = FACE_NORMALS[face];
                     int ox = x + normal.x;
                     int oy = y + normal.y;
@@ -425,65 +431,130 @@ static inline struct block_state *get_block_state_ptr(struct chunk *c, int x, in
 }
 
 static inline bool is_solid_blockstate(struct block_state *state) {
-    return state != NULL && block_is_solid(state->type);
+    return state != NULL && block_is_solid(state->block);
 }
 
+// temporary light functions, will be replaced with proper multi channel light system later
 static inline bool light_lessthan(light_t a, light_t b) {
     return a < b;
 }
 
 static inline light_t light_decrement(light_t light) {
-    if (light == 0)
-        return 0;
-    return light - (0xFF / 16);
+    light_t l = light - (0xFF / 16);
+    return (l > 0) ? l : 0;
 }
 
-void tmp_floodfill_light(struct chunk *c, int x, int y, int z) {
-    queue_t q = {0};
-    queue_init(&q, C_SIZEP3, sizeof(struct light_node));
+static inline light_t light_max(light_t a, light_t b) {
+    return (a > b) ? a : b;
+}
 
+static void add_floodfill_light(queue_t *q) {
     struct light_node node;
-    node.it = iterator_make(c, x, y, z);
-    node.light = c->blocks[get_index(x, y, z)].light;
-    printf("Starting light update from (%d, %d, %d) in chunk (%d, %d, %d) with light %u\n", x, y, z, c->pos.x, c->pos.y, c->pos.z, node.light);
-    queue_enqueue(&q, &node);
-
-    struct light_node current;
-    while (!queue_is_empty(&q)) {
-        if (!queue_dequeue(&q, &current))
-            break;
-
-        struct block_state *current_state = iterator_get_block_state_ptr(&current.it);
+    while (!queue_empty(q)) {
+        queue_dequeue(q, &node);
+        struct block_state *current_state = iterator_get_block_state_ptr(&node.it);
         if (current_state == NULL) {
-            fprintf(stderr, "tmp_floodfill_light: current state is NULL at (%d, %d, %d) in chunk (%d, %d, %d)\n", current.it.x, current.it.y, current.it.z, current.it.chunk->pos.x, current.it.chunk->pos.y, current.it.chunk->pos.z);
+            fprintf(stderr, "tmp_floodfill_light: current state is NULL at (%d, %d, %d) in chunk (%d, %d, %d)\n", node.it.x, node.it.y, node.it.z, node.it.chunk->pos.x, node.it.chunk->pos.y, node.it.chunk->pos.z);
             continue;
         }
 
-        current_state->light = current.light;
-        light_t declvl = light_decrement(current.light);
+        // printf("Adding light at (%d, %d, %d) in chunk (%d, %d, %d) with light %u\n", node.it.x, node.it.y, node.it.z, node.it.chunk->pos.x, node.it.chunk->pos.y, node.it.chunk->pos.z, node.light);
+        light_t declvl = light_decrement(current_state->light);
         if (declvl == 0)
             continue;
 
-        for (int face = 0; face < 6; face++) {
-            iterator_t it = current.it;
+        for (int face = 0; face < DIR_COUNT; face++) {
+            iterator_t it = node.it;
             iterator_move(&it, face);
 
             struct block_state *neighbour_state = iterator_get_block_state_ptr(&it);
-            if (current_state != NULL && !is_solid_blockstate(neighbour_state)) {
+            if (neighbour_state == NULL) {
+                fprintf(stderr, "null neighbour block_state\n");
+                continue;
+            }
+
+            if (!block_is_solid(neighbour_state->block)) {
                 if (light_lessthan(neighbour_state->light, declvl)) {
-                    neighbour_state->light = declvl;
-                    set_padded_blockstate(it.chunk, it.x, it.y, it.z, neighbour_state);
+                    neighbour_state->light = light_max(neighbour_state->light, declvl);
+                    set_padded_blockstate(it.chunk, it.x, it.y, it.z, *neighbour_state);
                     it.chunk->dirty = true;
+
                     struct light_node neighbour_node;
                     neighbour_node.it = it;
                     neighbour_node.light = declvl;
-                    queue_enqueue(&q, &neighbour_node);
+                    //  printf("add_floodfill_light: Enqueuing light addition at (%d, %d, %d) in chunk (%d, %d, %d) with light %u\n", it.x, it.y, it.z, it.chunk->pos.x, it.chunk->pos.y, it.chunk->pos.z, declvl);
+                    queue_enqueue(q, &neighbour_node);
                 }
             }
         }
     }
+}
 
-    queue_destroy(&q);
+static void rem_floodfill_light(queue_t *remq, queue_t *addq) {
+    struct light_node node;
+
+    while (!queue_empty(remq)) {
+        queue_dequeue(remq, &node);
+        struct block_state *current_state = iterator_get_block_state_ptr(&node.it);
+        if (current_state == NULL) {
+            fprintf(stderr, "null block_state\n");
+            continue;
+        }
+
+        for (int face = 0; face < DIR_COUNT; face++) {
+            iterator_t it = node.it;
+            iterator_move(&it, (enum dir)face);
+
+            struct block_state *neighbour_state = iterator_get_block_state_ptr(&it);
+            if (neighbour_state == NULL) {
+                fprintf(stderr, "null neighbour block_state\n");
+                continue;
+            }
+
+            light_t neighbour_level = neighbour_state->light;
+            if (neighbour_level != 0 && neighbour_level < node.light) {
+                // set the light level
+                neighbour_state->light = 0;
+                set_padded_blockstate(it.chunk, it.x, it.y, it.z, *neighbour_state);
+
+                struct light_node neighbour_node;
+                neighbour_node.it = it;
+                neighbour_node.light = neighbour_level;
+                queue_enqueue(remq, &neighbour_node);
+            } else if (neighbour_level >= node.light) {
+                struct light_node neighbour_node;
+                neighbour_node.it = it;
+                queue_enqueue(addq, &neighbour_node);
+            }
+        }
+    }
+}
+
+void add_light_tmp(struct chunk *c, int x, int y, int z) {
+    queue_t add_queue = queue_make(sizeof(struct light_node), C_SIZEP3);
+
+    struct light_node node;
+    node.it = iterator_make(c, x, y, z);
+    printf("Starting light update from (%d, %d, %d) in chunk (%d, %d, %d) with light %u\n", x, y, z, c->pos.x, c->pos.y, c->pos.z, node.light);
+    queue_enqueue(&add_queue, &node);
+    add_floodfill_light(&add_queue);
+    queue_destroy(&add_queue);
+}
+
+void rem_light_tmp(struct chunk *c, int x, int y, int z, light_t old_level) {
+    queue_t rem_queue = queue_make(sizeof(struct light_node), C_SIZEP3);
+    queue_t add_queue = queue_make(sizeof(struct light_node), C_SIZEP3);
+
+    struct light_node node;
+    node.it = iterator_make(c, x, y, z);
+    node.light = old_level;
+    queue_enqueue(&rem_queue, &node);
+
+    printf("Starting light removal update from (%d, %d, %d) in chunk (%d, %d, %d) with light %u\n", x, y, z, c->pos.x, c->pos.y, c->pos.z, old_level);
+    rem_floodfill_light(&rem_queue, &add_queue);
+    add_floodfill_light(&add_queue);
+    queue_destroy(&rem_queue);
+    queue_destroy(&add_queue);
 }
 
 iterator_t iterator_make(struct chunk *c, int x, int y, int z) {

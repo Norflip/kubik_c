@@ -3,25 +3,26 @@
 #include "utils.h"
 #include <stdbool.h>
 
+#define DEBUG_QUEUE 1
+
 // simple FIFO queueue
 typedef struct queue {
     void *queue;
-    u64 elem_size;
+    u64 stride;
     u64 head, tail;
     u64 count, cap;
     bool allow_resizing;
 } queue_t;
 
-void queue_init(queue_t *queue, u64 capacity, u64 elem_size);
+queue_t queue_make(u64 stride, u64 capacity);
 void queue_destroy(queue_t *queue);
 bool queue_enqueue(queue_t *queue, const void *elem);
 bool queue_dequeue(queue_t *queue, void *out_elem);
 bool queue_peek(const queue_t *queue, void *out_elem);
 u64 queue_size(const queue_t *queue);
-bool queue_is_empty(const queue_t *queue);
+bool queue_empty(const queue_t *queue);
 
-
-// priority queueue
+// priority queue
 typedef struct pqueue {
     void *pqueue;
     u64 elem_size;
@@ -30,7 +31,7 @@ typedef struct pqueue {
     int (*cmp)(const void *a, const void *b);
 } pqueue_t;
 
-void pqueue_init(pqueue_t *pqueue, u64 capacity, u64 elem_size, int (*cmp)(const void *a, const void *b));
+pqueue_t pqueue_make(u64 stride, u64 capacity, int (*cmp)(const void *a, const void *b));
 void pqueue_destroy(pqueue_t *pqueue);
 bool pqueue_enqueue(pqueue_t *pqueue, const void *elem);
 bool pqueue_dequeue(pqueue_t *pqueue, void *out_elem);
