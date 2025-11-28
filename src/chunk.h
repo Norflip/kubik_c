@@ -48,14 +48,14 @@ struct block_state {
 };
 
 struct chunk {
-    int _canary;
+    int _canary0;
     ivec3 pos;
     vec3 min, max;
     enum chunk_state state;
     enum chunk_flag flags;
 
     struct block_state *blocks;
-    struct chunk *neighbours[6];
+    struct chunk *neighbours[DIR_COUNT];
     int fill_count; // excludes the padded blocks
 
     // rendering stuff
@@ -65,6 +65,7 @@ struct chunk {
     int dirty;
 
     mutex_t lock;
+    int _canary1;
 };
 
 void chunk_initialize(struct chunk *c, ivec3 pos, enum chunk_flag flags);

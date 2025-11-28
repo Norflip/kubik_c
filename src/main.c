@@ -29,8 +29,7 @@ static bool draw_wireframe = false;
 static bool draw_lines = true;
 static bool vsync = true;
 static bool msaa_enabled = true;
-
-static struct world world;
+static struct world *world;
 
 static void glfw_error_cb(int error, const char *description);
 static void glfw_key_callback(GLFWwindow *window, int key, int scancode, int action, int mods);
@@ -122,14 +121,16 @@ int main() {
     cam_initialize(&camera, window_width, window_height, to_rad(45.0f));
     cam_set_transform(&camera, (vec3){8.0f, 110.0f, 8.0f}, quat_identity());
 
-    memset(&world, 0, sizeof(struct world));
-    world_init(&world, 0, 8, 12, true);
-    world_generate_initial(&world);
-
-    // start time
-    bool track_gen_time = true;
-    double gen_start_time = glfwGetTime();
-    double final_time = -1.0;
+    world = malloc(sizeof(struct world));
+    memset(world, 0, sizeof(struct world));
+    world_init(world, 0, 4, 12, true);
+    world_generate_initial(world);
+    
+    printf("Waiting for initial generation to complete...\n");
+    while (world_is_working(world)) {
+        thread_sleep(100);
+    }
+    printf("Generation complete, loading shaders...\n");
 
     GLuint chunk_program = load_program("chunk", asset_path("chunk.vs"), asset_path("chunk.fs"));
 
@@ -141,11 +142,19 @@ int main() {
 
     vec3 ro, rd;
     struct world_hit hit = {0};
+    
+    // start time
+    bool track_gen_time = true;
+    double gen_start_time = glfwGetTime();
+    double final_time = -1.0;
 
     // bool mouse_state[GLFW_MOUSE_BUTTON_LAST] = {0};
     // bool mouse_state_prev[GLFW_MOUSE_BUTTON_LAST] = {0};
     bool mouse_state[GLFW_MOUSE_BUTTON_LAST][2] = {0};
     block_t selected_block_index = BLK_GLOW;
+
+   // printf("sizeof(struct mesh_quad) = %zu\n", sizeof(struct mesh_quad));
+   // printf("Allocation size = %zu\n", C_SIZE3 * DIR_COUNT * sizeof(struct mesh_quad));
 
     u64 frame_count = 0;
 
@@ -156,7 +165,7 @@ int main() {
         const double dt = curr_frame - prev_frame;
         prev_frame = curr_frame;
         cam_fps_update(&camera, window, dt);
-        world_tick(&world);
+        world_tick(world);
 
         for (u64 i = 0; i < GLFW_MOUSE_BUTTON_LAST; i++) {
             mouse_state[i][1] = mouse_state[i][0];                                // previous = current
@@ -168,7 +177,7 @@ int main() {
             double mouse_x, mouse_y;
             glfwGetCursorPos(window, &mouse_x, &mouse_y);
             cam_screen_to_ray(&camera, (int)mouse_x, (int)mouse_y, &ro, &rd);
-            world_trace(&world, ro, rd, 100.0f, &hit);
+            world_trace(world, ro, rd, 100.0f, &hit);
 
             if (hit.did_hit && mouse_state[GLFW_MOUSE_BUTTON_MIDDLE][0] && !mouse_state[GLFW_MOUSE_BUTTON_MIDDLE][1]) {
                 selected_block_index = hit.block;
@@ -178,14 +187,14 @@ int main() {
                 // check glfw for shift
                 if (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_RIGHT_SHIFT) == GLFW_PRESS || selected_block_index == BLK_AIR) {
                     // remove block
-                    world_set_block(&world, hit.pos.x, hit.pos.y, hit.pos.z, BLK_AIR);
+                    world_set_block(world, hit.pos.x, hit.pos.y, hit.pos.z, BLK_AIR);
                 } else {
                     // place block
                     ivec3 place_pos = hit.pos;
                     place_pos.x += hit.normal.x;
                     place_pos.y += hit.normal.y;
                     place_pos.z += hit.normal.z;
-                    world_set_block(&world, place_pos.x, place_pos.y, place_pos.z, selected_block_index);
+                    world_set_block(world, place_pos.x, place_pos.y, place_pos.z, selected_block_index);
                 }
             }
         }
@@ -202,7 +211,7 @@ int main() {
         dbg_cube(hit_pos, (vec3){0.54f, 0.54f, 0.54f}, C32_WHITE);
         dbg_line(hit_pos, v3_add(hit_pos, v3_cast(hit.normal)), C32_YELLOW);
 
-        int height = world_sample_height(&world, (int)camera.pos.x, (int)camera.pos.z);
+        int height = world_sample_height(world, (int)camera.pos.x, (int)camera.pos.z);
         dbg_cube((vec3){camera.pos.x, (float)height + 0.5f, camera.pos.z}, (vec3){0.54f, 0.54f, 0.54f}, C32_GREEN);
         dbg_cube((vec3){(int)camera.pos.x + 0.5f, (float)height + 0.5f, (int)camera.pos.z + 0.5f}, (vec3){0.6f, 0.6f, 0.6f}, C32_RED);
 
@@ -222,7 +231,7 @@ int main() {
 
         glViewport(0, 0, window_width, window_height);
         glPolygonMode(GL_FRONT_AND_BACK, draw_wireframe ? GL_LINE : GL_FILL);
-        world_draw(&world, &camera, chunk_program, chunk_atlas, atlas_depth);
+        world_draw(world, &camera, chunk_program, chunk_atlas, atlas_depth);
 
 #pragma region DebugUI
 #if 1
@@ -241,7 +250,7 @@ int main() {
             igText("pos:   (%d, %d, %d)", (int)camera.pos.x, (int)camera.pos.y, (int)camera.pos.z);
             igText("chunk: (%d, %d, %d)", u_idiv((int)camera.pos.x, C_SIZE), u_idiv((int)camera.pos.y, C_SIZE), u_idiv((int)camera.pos.z, C_SIZE));
             igText("hunk:   (%d, %d)", u_idiv((int)camera.pos.x, HW_SIZE), u_idiv((int)camera.pos.z, HW_SIZE));
-            igText("ground height: %d", world_sample_height(&world, (int)camera.pos.x, (int)camera.pos.z));
+            igText("ground height: %d", world_sample_height(world, (int)camera.pos.x, (int)camera.pos.z));
             const char *block_names[BLK_COUNT];
             for (int i = 0; i < BLK_COUNT; i++) {
                 block_names[i] = block_name((block_t)i);
@@ -262,9 +271,9 @@ int main() {
             }
 
             igSeparatorText("World");
-            igText("Seed: %d", world.seed);
-            igText("Work queue: %d", world.work_que.count);
-            igText("Workers: %d", world.num_worker_threads);
+            igText("Seed: %d", world->seed);
+            igText("Work queue: %d", world->work_queue.count);
+            igText("Workers: %d", world->num_worker_threads);
             igText("Gentime: %s", track_gen_time ? "generating..." : "done");
             if (track_gen_time) {
                 double current_time = glfwGetTime() - gen_start_time;
@@ -273,11 +282,10 @@ int main() {
                 igText("Gen time: %.2f seconds", final_time);
             }
 
-            igText("Chunk Count: %d", world.chunk_count);
-            igText("Hunk Count: %d", world.hunk_count);
-
+            igText("Chunk Count: %d", world->chunk_count);
+            igText("Hunk Count: %d", world->hunk_count);
             igSeparatorText("Renderer");
-            mesh_batch_t *batch = world.batch;
+            mesh_batch_t *batch = world->batch;
             char str_id[64];
             snprintf(str_id, sizeof(str_id), "buf_%d", 0);
             if (igTreeNode_StrStr(str_id, "buffer %d", 0)) {
@@ -347,7 +355,7 @@ static void glfw_key_callback(GLFWwindow *window, int key, int scancode, int act
     }
 
     if (action == GLFW_PRESS && key == GLFW_KEY_F8) {
-        validate_world(&world);
+        validate_world(world);
     }
 
     // if (igGetIO()->WantCaptureKeyboard)return;

@@ -99,7 +99,7 @@ static inline void *get_elem_ptr(pqueue_t *pqueue, size_t index) {
     return (void *)((uintptr_t)pqueue->pqueue + (index * pqueue->elem_size));
 }
 
-static void pqueueify_up(struct pqueue *pqueue, size_t index) {
+static void heap_up(struct pqueue *pqueue, size_t index) {
     while (index > 0) {
         size_t parent_idx = (index - 1) / 2;
         if (pqueue->cmp(get_elem_ptr(pqueue, index), get_elem_ptr(pqueue, parent_idx)) >= 0)
@@ -110,7 +110,7 @@ static void pqueueify_up(struct pqueue *pqueue, size_t index) {
     }
 }
 
-static void pqueueify_down(struct pqueue *pqueue, size_t index) {
+static void heap_down(struct pqueue *pqueue, size_t index) {
     while (true) {
         size_t smallest = index;
         size_t left = 2 * index + 1;
@@ -168,7 +168,7 @@ bool pqueue_enqueue(pqueue_t *pqueue, const void *elem) {
 
     memcpy(get_elem_ptr(pqueue, pqueue->count), elem, pqueue->elem_size);
     pqueue->count++;
-    pqueueify_up(pqueue, pqueue->count - 1);
+    heap_up(pqueue, pqueue->count - 1);
     return true;
 }
 
@@ -180,7 +180,7 @@ bool pqueue_dequeue(pqueue_t *pqueue, void *out_elem) {
     pqueue->count--;
     if (pqueue->count > 0) {
         memcpy(get_elem_ptr(pqueue, 0), get_elem_ptr(pqueue, pqueue->count), pqueue->elem_size);
-        pqueueify_down(pqueue, 0);
+        heap_down(pqueue, 0);
     }
     return true;
 }

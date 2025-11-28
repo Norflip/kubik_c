@@ -34,8 +34,10 @@ struct world {
     int num_worker_threads;
     bool flatgrass; // should probably be a flag 
     int load_radius;
+
     struct chunk **chunks;
     int chunk_count, chunk_cap;
+    
     struct hunk **hunks;
     int hunk_count, hunk_cap;
 
@@ -43,9 +45,13 @@ struct world {
     int dirty_chunk_count, dirty_chunk_cap;
 
     mesh_batch_t *batch;
-    pqueue_t work_que;
+    pqueue_t work_queue;
     mutex_t work_lock;
     cond_t work_cond;
+
+    mutex_t alloc_lock;
+    mutex_t mesh_lock;
+    void* worker_arena;
 };
 
 struct world_hit {

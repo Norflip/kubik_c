@@ -3,7 +3,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-
 #define BITS_PER_WORD (sizeof(uint64_t) * 8)
 #define set_bit(bitmap, bit) bitmap[(bit) / BITS_PER_WORD] |= (1ULL << ((bit) % BITS_PER_WORD))
 #define clear_bit(bitmap, bit) bitmap[(bit) / BITS_PER_WORD] &= ~(1ULL << ((bit) % BITS_PER_WORD))
@@ -155,7 +154,7 @@ bool mesh_batch_alloc(mesh_batch_t *batch, void *data, u64 size, mesh_handle_t *
         return false;
     }
 
-    if(batch->free_pages == 0) {
+    if (batch->free_pages == 0) {
         fprintf(stderr, "mesh_batch_alloc: no free pages available\n");
         return false;
     }
@@ -214,6 +213,7 @@ bool mesh_batch_free(mesh_batch_t *batch, mesh_handle_t *handle) {
     if (!mesh_batch_handle_is_valid(handle))
         return false;
 
+    mutex_lock(&batch->lock);
     const u64 page_count = pages_required(handle->size, batch->page_size);
     for (u64 i = 0; i < page_count; i++) {
         u64 pos = handle->page + i;
@@ -222,6 +222,10 @@ bool mesh_batch_free(mesh_batch_t *batch, mesh_handle_t *handle) {
 
     batch->free_pages += page_count;
     handle->valid = false;
+    handle->ptr = NULL;
+    handle->page = 0;
+    handle->size = 0;
+    mutex_unlock(&batch->lock);
     return true;
 }
 

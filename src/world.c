@@ -11,18 +11,21 @@
 // work related stuff
 #define WORK_MESH_PRIORITY_BASE 100
 
+struct thread_ctx {
+    int index;
+    struct world *w;
+};
+
 struct work {
-    void (*func)(struct chunk *c, struct world *w, struct work *self);
+    void (*func)(struct chunk *c, struct world *w, struct work *self, int thread_index);
     int priority;
     bool is_column;
     bool in_meshing_dist;
-    union {
-        struct {
-            int x, z;
-            int min_y, max_y;
-        } column;
-        struct chunk *chunk;
-    };
+    struct {
+        int x, z;
+        int min_y, max_y;
+    } column;
+    struct chunk *chunk;
 };
 
 static int work_cmp(const void *a, const void *b) {
@@ -31,18 +34,18 @@ static int work_cmp(const void *a, const void *b) {
     return (wa->priority > wb->priority) - (wa->priority < wb->priority);
 }
 
-static void push_work(struct world *world, struct work work) {
+static void push_work(struct world *world, struct work *work) {
     mutex_lock(&world->work_lock);
-    pqueue_enqueue(&world->work_que, &work);
+    pqueue_enqueue(&world->work_queue, work);
     cond_signal(&world->work_cond);
     mutex_unlock(&world->work_lock);
 }
 
 static void pop_work(struct world *world, struct work *out) {
     mutex_lock(&world->work_lock);
-    while (pqueue_is_empty(&world->work_que))
+    while (pqueue_is_empty(&world->work_queue))
         cond_wait(&world->work_cond, &world->work_lock);
-    pqueue_dequeue(&world->work_que, out);
+    pqueue_dequeue(&world->work_queue, out);
     mutex_unlock(&world->work_lock);
 }
 
@@ -127,7 +130,10 @@ static struct hunk *alloc_hunk(struct world *w, int x, int z) {
     h->x = x;
     h->z = z;
     h->chunk_count = 0;
+
+    mutex_lock(&w->work_lock);
     w->hunks[w->hunk_count++] = h;
+    mutex_unlock(&w->work_lock);
     generate_hunk_noise_maps(w, h);
     return h;
 }
@@ -161,30 +167,36 @@ static struct chunk *alloc_chunk(struct world *w, int x, int y, int z, struct hu
     struct chunk *c = malloc(sizeof(struct chunk));
     chunk_initialize(c, (ivec3){x, y, z}, 0);
 
+    mutex_lock(&w->work_lock);
     w->chunks[w->chunk_count++] = c;
     hunk->chunks[index] = c;
     hunk->chunk_count++;
+    mutex_unlock(&w->work_lock);
     return c;
 }
 
 static void *worker_func(void *arg) {
-    struct world *w = (struct world *)arg;
+    struct thread_ctx *ctx = (struct thread_ctx *)arg;
+    struct world *w = ctx->w;
+    printf("Worker thread %d started\n", ctx->index);
+
     while (!w->initialized) {
         printf("waiting for world to initialize...\n");
         thread_sleep(100);
     }
 
-    struct work work;
+    struct work work = {0};
     while (true) {
         pop_work(w, &work);
         if (work.func)
-            work.func(work.chunk, w, &work);
+            work.func(work.chunk, w, &work, ctx->index);
     }
 
     return NULL;
 }
 
-static void gen_chunk_mesh_fn(struct chunk *c, struct world *w, struct work *self) {
+static void gen_chunk_mesh_fn(struct chunk *c, struct world *w, struct work *self, int thread_index) {
+#if 0
     assert(c != NULL);
 
     // check the neighbours
@@ -200,8 +212,24 @@ static void gen_chunk_mesh_fn(struct chunk *c, struct world *w, struct work *sel
     }
 
     c->state = C_STATE_MESHING;
-    void *quads = malloc(C_SIZE3 * DIR_COUNT * sizeof(struct mesh_quad));
+
+    const size_t max_quads = C_SIZE3 * DIR_COUNT;
+    const size_t alloc_size = max_quads * sizeof(struct mesh_quad);
+    void *quads = malloc(alloc_size);
+    if (!quads) {
+        fprintf(stderr, "Failed to allocate %zu bytes for mesh\n", alloc_size);
+        return;
+    }
+
+    // CRITICAL: Fill with pattern to detect overwrites
+    memset(quads, 0xCD, alloc_size);
+
     size_t quad_count = chunk_generate_mesh_data(c, quads);
+    // CRITICAL: Check if we wrote past the buffer
+    if (quad_count > max_quads) {
+        fprintf(stderr, "BUFFER OVERFLOW: quad_count=%zu, max=%zu\n", quad_count, max_quads);
+        __debugbreak(); // Stop immediately
+    }
 
     if (quad_count > 0) {
         if (c->mesh_handle.valid) {
@@ -218,9 +246,56 @@ static void gen_chunk_mesh_fn(struct chunk *c, struct world *w, struct work *sel
     c->dirty = false;
     c->state = C_STATE_MESHED;
     free(quads);
+#else
+    assert(c != NULL);
+
+    for (int face = 0; face < DIR_COUNT; face++) {
+        struct chunk *n = c->neighbours[face];
+        if (n && n->state < C_STATE_GENERATED) {
+            self->priority++;
+            push_work(w, self);
+            return;
+        }
+    }
+
+    c->state = C_STATE_MESHING;
+
+    const size_t max_quads = C_SIZE3 * DIR_COUNT;
+    const size_t alloc_size = max_quads * sizeof(struct mesh_quad);
+
+    // printf("[Thread %lu] Allocating %zu bytes at chunk (%d,%d,%d)\n", GetCurrentThreadId(), alloc_size, c->pos.x, c->pos.y, c->pos.z);
+
+    // void *quads = malloc(alloc_size);
+
+    void *quads = (void *)((uintptr_t)w->worker_arena + (alloc_size * thread_index));
+    memset(quads, 0xDD, alloc_size);
+    size_t quad_count = chunk_generate_mesh_data(c, quads);
+
+    if (quad_count > max_quads) {
+        fprintf(stderr, "OVERFLOW DETECTED! %zu > %zu\n", quad_count, max_quads);
+        __debugbreak();
+    }
+
+    if (quad_count > 0) {
+        if (mesh_batch_handle_is_valid(&c->mesh_handle)) {
+            mutex_lock(&w->mesh_lock);
+            mesh_batch_free(w->batch, &c->mesh_handle);
+            mutex_unlock(&w->mesh_lock);
+        }
+
+        mutex_lock(&w->mesh_lock);
+        if (!mesh_batch_alloc(w->batch, quads, quad_count * sizeof(struct mesh_quad), &c->mesh_handle)) {
+            fprintf(stderr, "mesh_batch_alloc failed\n");
+        }
+        mutex_unlock(&w->mesh_lock);
+    }
+
+    c->dirty = false;
+    c->state = C_STATE_MESHED;
+#endif
 }
 
-static void gen_chunk_data_fn(struct chunk *c, struct world *w, struct work *self) {
+static void gen_chunk_data_fn(struct chunk *c, struct world *w, struct work *self, int thread_index) {
     assert(self->is_column);
 
     struct chunk *top_chunk = world_get_chunk(w, self->column.x, self->column.max_y, self->column.z);
@@ -243,7 +318,8 @@ static void gen_chunk_data_fn(struct chunk *c, struct world *w, struct work *sel
         chunk->state = C_STATE_GENERATED;
 
         if (self->in_meshing_dist && chunk->fill_count > 0) {
-            push_work(w, (struct work){.chunk = chunk, .is_column = false, .func = gen_chunk_mesh_fn, .priority = WORK_MESH_PRIORITY_BASE});
+            struct work mesh_work = (struct work){.chunk = chunk, .is_column = false, .func = gen_chunk_mesh_fn, .priority = WORK_MESH_PRIORITY_BASE};
+            push_work(w, &mesh_work);
         }
 
         chunk = chunk->neighbours[DIR_DOWN];
@@ -343,16 +419,28 @@ void world_init(struct world *w, int seed, int num_worker_threads, int load_radi
 
     w->batch = mesh_batch_init("chunk_mesh_batch", MB(32), KB(2), H_SIZE3, sizeof(struct instance_data));
 
+    // create num_worker_threads of the quad memory
+    const size_t max_quads = C_SIZE3 * DIR_COUNT;
+    const size_t alloc_size = max_quads * sizeof(struct mesh_quad);
+
+    w->worker_arena = malloc(alloc_size * num_worker_threads);
+
     // work queue
-    w->work_que = pqueue_make(sizeof(struct work), 512, work_cmp);
+    w->work_queue = pqueue_make(sizeof(struct work), 512, work_cmp);
     mutex_init(&w->work_lock);
     cond_init(&w->work_cond);
+    mutex_init(&w->alloc_lock);
+    mutex_init(&w->mesh_lock);
+
     printf("World initialized with seed %d\n", seed);
 
     w->num_worker_threads = num_worker_threads;
     thread_t thread;
     for (int i = 0; i < w->num_worker_threads; i++) {
-        thread_init(&thread, worker_func, w);
+        struct thread_ctx *ctx = malloc(sizeof(struct thread_ctx));
+        ctx->index = i;
+        ctx->w = w;
+        thread_init(&thread, worker_func, ctx);
         thread_detach(thread);
     }
 
@@ -367,10 +455,11 @@ static void push_column_work(struct world *w, int x, int z, int min_y, int max_y
     work.column.z = z;
     work.column.min_y = min_y;
     work.column.max_y = max_y;
+    work.chunk = NULL;
     work.func = gen_chunk_data_fn;
     work.priority = priority;
     work.in_meshing_dist = in_meshing_dist;
-    push_work(w, work);
+    push_work(w, &work);
 }
 
 static int get_chunk_column_priority(int x, int z, int center_x, int center_z) {
@@ -391,7 +480,7 @@ void world_generate_initial(struct world *w) {
         return;
     }
 
-    // we should these coordinates for future use
+    // we should cache these coordinates for future use
     ivec2 *columns = malloc(sizeof(ivec2) * max_iter);
     int cind = 0;
     int x, z, dx, dz;
@@ -426,6 +515,7 @@ void world_generate_initial(struct world *w) {
     for (int i = 0; i < w->chunk_count; i++) {
         struct chunk *c = w->chunks[i];
         for (int face = 0; face < DIR_COUNT; face++) {
+            assert(face >= 0 && face < 6);
             int dx = c->pos.x + FACE_NORMALS[face].x;
             int dy = c->pos.y + FACE_NORMALS[face].y;
             int dz = c->pos.z + FACE_NORMALS[face].z;
@@ -444,7 +534,7 @@ void world_generate_initial(struct world *w) {
         push_column_work(w, col.x, col.y, 0, H_SIZE - 1, get_chunk_column_priority(col.x, col.y, 0, 0), in_meshing_dist);
     }
 
-    free(columns);
+    // free(columns);
 }
 
 // TODO: temporary, needs to handle edges properly
@@ -519,7 +609,7 @@ int world_sample_height(struct world *w, int x, int z) {
 }
 
 bool world_is_working(struct world *w) {
-    return !pqueue_is_empty(&w->work_que);
+    return !pqueue_is_empty(&w->work_queue);
 }
 
 void world_tick(struct world *w) {
@@ -536,7 +626,8 @@ void world_tick(struct world *w) {
 
     for (int i = 0; i < w->dirty_chunk_count; i++) {
         struct chunk *c = w->dirty_chunks[i];
-        push_work(w, (struct work){.chunk = c, .is_column = false, .func = gen_chunk_mesh_fn, .priority = WORK_MESH_PRIORITY_BASE});
+        struct work work = (struct work){.chunk = c, .is_column = false, .func = gen_chunk_mesh_fn, .priority = WORK_MESH_PRIORITY_BASE};
+        push_work(w, &work);
     }
     w->dirty_chunk_count = 0;
 }

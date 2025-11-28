@@ -2,6 +2,7 @@
 #define UTILS_H
 #include "maf.h"
 #include <stdint.h>
+#include <assert.h>
 
 // TODO: remove?
 typedef uint8_t u8;
@@ -37,8 +38,11 @@ typedef uint32_t col32_t;
 
 // directions
 enum dir { DIR_RIGHT = 0, DIR_LEFT, DIR_UP, DIR_DOWN, DIR_FRONT, DIR_BACK, DIR_COUNT };
-#define opposite_dir(i) (i + (!((i) % 2) ? 1 : -1))
 static const ivec3 FACE_NORMALS[6] = {{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}};
+static inline enum dir dir_opposite(enum dir d) {
+    assert(d >= 0 && d < DIR_COUNT);
+    return (d % 2 == 0) ? (d + 1) : (d - 1);
+}
 
 // RNG
 static inline uint32_t rng_next(uint32_t *state) {

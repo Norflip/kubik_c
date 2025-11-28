@@ -7,9 +7,10 @@
 
 #define C_CANARY 0xBABEDAD
 
-#define ASSERT_CHUNK(c) \
-    assert(c != NULL);  \
-    assert(c->_canary == C_CANARY)
+#define ASSERT_CHUNK(c)                                          \
+    assert(c != NULL);                                           \
+    assert(c->_canary0 == C_CANARY && "Chunk canary0 mismatch"); \
+    assert(c->_canary1 == C_CANARY && "Chunk canary1 mismatch");
 
 static inline int get_index(int x, int y, int z) {
     return u_index_zxy(x + 1, y + 1, z + 1, C_SIZEP);
@@ -18,7 +19,8 @@ static inline int get_index(int x, int y, int z) {
 void chunk_initialize(struct chunk *c, ivec3 pos, enum chunk_flag flags) {
     memset(c, 0, sizeof(struct chunk));
     c->pos = pos;
-    c->_canary = C_CANARY;
+    c->_canary0 = C_CANARY;
+    c->_canary1 = C_CANARY;
     c->tint = C32_CLEAR;
 
     c->min = (vec3){c->pos.x * C_SIZE, c->pos.y * C_SIZE, c->pos.z * C_SIZE};
@@ -118,6 +120,7 @@ static void set_padded_blockstate(struct chunk *c, int x, int y, int z, struct b
     if (!pos_on_border(x, y, z))
         return;
 
+    ASSERT_CHUNK(c);
     int boundary_count = 0;
     uint8_t mask = get_boundary_mask(x, y, z, &boundary_count);
     if (mask == 0 || boundary_count == 0)
@@ -153,17 +156,18 @@ static void set_padded_blockstate(struct chunk *c, int x, int y, int z, struct b
                 break;
             }
 
-            if (c->blocks != NULL) {
-                if (try_alloc_block_data(n)) {
-                    // memcpy(&n->blocks[get_index(tx, ty, tz)], value, sizeof(struct block_state));
-                    n->blocks[get_index(tx, ty, tz)] = state;
+            // if (c->blocks != NULL) {
+            if (try_alloc_block_data(n)) {
+                // memcpy(&n->blocks[get_index(tx, ty, tz)], value, sizeof(struct block_state));
+                n->blocks[get_index(tx, ty, tz)] = state;
 
-                    n->dirty = true;
-                }
+                n->dirty = true;
             }
+            // }
         }
     }
 
+    /*
     static const int edge_combinations[12][2] = {
         {DIR_RIGHT, DIR_UP},    {DIR_RIGHT, DIR_DOWN}, // +X edges
         {DIR_LEFT, DIR_UP},     {DIR_LEFT, DIR_DOWN},  // -X edges
@@ -202,14 +206,14 @@ static void set_padded_blockstate(struct chunk *c, int x, int y, int z, struct b
                     int ty = (dy == 1) ? -1 : (dy == -1) ? C_SIZE : y;
                     int tz = (dz == 1) ? -1 : (dz == -1) ? C_SIZE : z;
 
-                    if (c->blocks != NULL) {
-                        if (try_alloc_block_data(n)) {
-                            // memcpy(&n->blocks[get_index(tx, ty, tz)], value, sizeof(struct block_state));
-                            n->blocks[get_index(tx, ty, tz)] = state;
+                    // if (n->blocks != NULL) {
+                    if (try_alloc_block_data(n)) {
+                        // memcpy(&n->blocks[get_index(tx, ty, tz)], value, sizeof(struct block_state));
+                        n->blocks[get_index(tx, ty, tz)] = state;
 
-                            n->dirty = true;
-                        }
+                        n->dirty = true;
                     }
+                    // }
                 }
             }
         }
@@ -234,17 +238,18 @@ static void set_padded_blockstate(struct chunk *c, int x, int y, int z, struct b
                     int ty = (dy == 1) ? -1 : C_SIZE;
                     int tz = (dz == 1) ? -1 : C_SIZE;
 
-                    if (c->blocks != NULL) {
-                        if (try_alloc_block_data(n)) {
-                            // memcpy(&n->blocks[get_index(tx, ty, tz)], value, sizeof(struct block_state));
-                            n->blocks[get_index(tx, ty, tz)] = state;
-                            n->dirty = true;
-                        }
+                    // if (n->blocks != NULL) {
+                    if (try_alloc_block_data(n)) {
+                        // memcpy(&n->blocks[get_index(tx, ty, tz)], value, sizeof(struct block_state));
+                        n->blocks[get_index(tx, ty, tz)] = state;
+                        n->dirty = true;
                     }
+                    // }
                 }
             }
         }
     }
+        */
 }
 
 bool chunk_set_block(struct chunk *c, int x, int y, int z, block_t block, bool player_triggered) {
@@ -326,8 +331,9 @@ void chunk_set_neighbour(struct chunk *c, struct chunk *neighbour, int face) {
     }
 
     c->neighbours[face] = neighbour;
-    if (neighbour)
-        neighbour->neighbours[opposite_dir(face)] = c;
+    if (neighbour) {
+        neighbour->neighbours[dir_opposite(face)] = c;
+    }
 }
 
 static struct mesh_quad make_quad(int x, int y, int z, int face, block_t block, light_t light, u8 ao[4], bool flipped) {
