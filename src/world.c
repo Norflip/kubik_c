@@ -422,7 +422,6 @@ void world_init(struct world *w, int seed, int num_worker_threads, int load_radi
     // create num_worker_threads of the quad memory
     const size_t max_quads = C_SIZE3 * DIR_COUNT;
     const size_t alloc_size = max_quads * sizeof(struct mesh_quad);
-
     w->worker_arena = malloc(alloc_size * num_worker_threads);
 
     // work queue
@@ -630,55 +629,6 @@ void world_tick(struct world *w) {
         push_work(w, &work);
     }
     w->dirty_chunk_count = 0;
-}
-
-void world_draw(struct world *w, struct cam *cam, GLuint program, GLuint atlas, int atlas_depth) {
-    mesh_batch_clear_commands(w->batch);
-
-    for (int i = 0; i < w->chunk_count; i++) {
-        struct chunk *c = w->chunks[i];
-        if (c->fill_count <= 0 || !c->mesh_handle.valid)
-            continue;
-
-        if (cam_aabb_in_view(cam, c->min, c->max)) {
-            struct mesh_quad *ptr = mesh_batch_handle_ptr(&c->mesh_handle);
-            struct draw_command cmd = {
-                .baseInstance = 0,
-                .instanceCount = 1,
-                .first = mesh_batch_calculate_offset(w->batch, &c->mesh_handle, sizeof(struct mesh_quad), 6),
-                .count = c->quad_count * 6,
-            };
-
-            struct instance_data data = {
-                .pos = iv3_scale(c->pos, C_SIZE),
-                .tint = C32_CLEAR,
-            };
-
-            mesh_batch_add_command(w->batch, &cmd, &data);
-            dbg_aabb(c->min, c->max, C32_WHITE);
-        }
-    }
-
-    dbg_fade(false);
-    for (int i = 0; i < w->hunk_count; i++) {
-        struct hunk *h = w->hunks[i];
-        vec3 hmin = {h->x * HW_SIZE, 0, h->z * HW_SIZE};
-        vec3 hmax = {hmin.x + HW_SIZE, H_SIZE * C_SIZE, hmin.z + HW_SIZE};
-        dbg_aabb(hmin, hmax, C32_GREEN);
-    }
-    dbg_fade(true);
-
-    glUseProgram(program);
-    glBindTextureUnit(0, atlas);
-    glUniformMatrix4fv(glGetUniformLocation(program, "vp"), 1, GL_FALSE, cam_view_proj_ptr(cam));
-    glUniform1ui(glGetUniformLocation(program, "atlas_depth"), (u32)atlas_depth);
-
-    static GLuint empty_vao = GL_NONE;
-    if (empty_vao == GL_NONE)
-        glGenVertexArrays(1, &empty_vao);
-    glBindVertexArray(empty_vao);
-
-    mesh_batch_multidraw(w->batch, 0, 1);
 }
 
 bool world_trace(struct world *w, vec3 ro, vec3 rd, float max_distance, struct world_hit *hit) {

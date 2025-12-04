@@ -2,6 +2,7 @@
 #define MAF_H
 #include <math.h>
 #include <stdint.h>
+#include <stdbool.h>
 
 // general shiet
 #define PI (3.14159265359f)
@@ -64,7 +65,6 @@ ivec3 iv3_scale(ivec3 v, int s);
 ivec3 iv3_div(ivec3 v, int d);
 ivec3 iv3_floor(vec3 v);
 
-
 // mat4
 // http://www.opengl-tutorial.org/beginners-tutorials/tutorial-3-matrices/
 // https://learnopengl.com/Getting-started/Transformations
@@ -102,5 +102,10 @@ mat4 quat_mat4(vec4 q);
 vec4 quat_conjugate(vec4 q);
 vec4 quat_normalize(vec4 q);
 vec4 quat_inverse(vec4 q);
+
+// frustum
+void frustum_make(mat4 m, vec4 frustum[6]);
+bool frustum_aabb_test(vec4 frustum[6], vec3 min, vec3 max);
+
 
 #endif

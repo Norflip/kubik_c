@@ -392,3 +392,78 @@ vec4 quat_normalize(vec4 q) {
 vec4 quat_inverse(vec4 q) {
     return quat_normalize(quat_conjugate(q));
 }
+
+void frustum_make(mat4 m, vec4 frustum[6]) {
+    // -x plane
+    frustum[0].x = m.m[3] + m.m[0];
+    frustum[0].y = m.m[7] + m.m[4];
+    frustum[0].z = m.m[11] + m.m[8];
+    frustum[0].w = m.m[15] + m.m[12];
+
+    // +x plane
+    frustum[1].x = m.m[3] - m.m[0];
+    frustum[1].y = m.m[7] - m.m[4];
+    frustum[1].z = m.m[11] - m.m[8];
+    frustum[1].w = m.m[15] - m.m[12];
+
+    // -y plane
+    frustum[2].x = m.m[3] + m.m[1];
+    frustum[2].y = m.m[7] + m.m[5];
+    frustum[2].z = m.m[11] + m.m[9];
+    frustum[2].w = m.m[15] + m.m[13];
+
+    // +y plane
+    frustum[3].x = m.m[3] - m.m[1];
+    frustum[3].y = m.m[7] - m.m[5];
+    frustum[3].z = m.m[11] - m.m[9];
+    frustum[3].w = m.m[15] - m.m[13];
+
+    // inverted Z dir for opengl
+    // -z plane
+    frustum[4].x = m.m[3] + m.m[2];
+    frustum[4].y = m.m[7] + m.m[6];
+    frustum[4].z = m.m[11] + m.m[10];
+    frustum[4].w = m.m[15] + m.m[14];
+
+    // +z plane
+    frustum[5].x = m.m[3] - m.m[2];
+    frustum[5].y = m.m[7] - m.m[6];
+    frustum[5].z = m.m[11] - m.m[10];
+    frustum[5].w = m.m[15] - m.m[14];
+
+    // normalize
+    for (int i = 0; i < 6; i++) {
+        float length = sqrtf(frustum[i].x * frustum[i].x + frustum[i].y * frustum[i].y + frustum[i].z * frustum[i].z);
+        frustum[i].x /= length;
+        frustum[i].y /= length;
+        frustum[i].z /= length;
+        frustum[i].w /= length;
+    }
+}
+
+bool frustum_aabb_test(vec4 frustum[6], vec3 min, vec3 max) {
+    vec3 corners[8];
+    corners[0] = (vec3){min.x, min.y, min.z};
+    corners[1] = (vec3){min.x, min.y, max.z};
+    corners[2] = (vec3){min.x, max.y, min.z};
+    corners[3] = (vec3){min.x, max.y, max.z};
+    corners[4] = (vec3){max.x, min.y, min.z};
+    corners[5] = (vec3){max.x, min.y, max.z};
+    corners[6] = (vec3){max.x, max.y, min.z};
+    corners[7] = (vec3){max.x, max.y, max.z};
+
+    for (int i = 0; i < 6; i++) {
+        vec4 plane = frustum[i];
+        int out = 0;
+        for (int j = 0; j < 8; j++) {
+            vec3 point = corners[j];
+            float dst = plane.x * point.x + plane.y * point.y + plane.z * point.z + plane.w;
+            if (dst < 0.0f)
+                out++;
+        }
+
+        if (out == 8)
+            return false;
+    }
+    return true;
+}
