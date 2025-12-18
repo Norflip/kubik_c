@@ -13,9 +13,10 @@
 #include <cimgui.h>
 #include <cimgui_impl.h>
 
-#include "cam.h"
+// #include "cam.h"
 #include "gfx.h"
 #include "load.h"
+#include "player.h"
 #include "world.h"
 
 #define DEFAULT_WINDOW_FACTOR_HEIGHT 0.9f
@@ -114,18 +115,17 @@ int main() {
 
     double start_time = glfwGetTime();
     double prev_frame = glfwGetTime();
-
     gfx_initialize();
-
-    struct cam camera;
-    cam_initialize(&camera, window_width, window_height, to_rad(45.0f));
-    cam_set_transform(&camera, (vec3){8.0f, 110.0f, 8.0f}, quat_identity());
 
     world = malloc(sizeof(struct world));
     memset(world, 0, sizeof(struct world));
     world_init(world, 0, 4, 3, true);
     world_generate_initial(world);
-    
+
+    struct player player;
+    player_init(&player, world, window, to_rad(45.0f));
+    player_set_pos(&player, (vec3){8.0f, 110.0f, 8.0f});
+
     printf("Waiting for initial generation to complete...\n");
     while (world_is_working(world)) {
         thread_sleep(100);
@@ -140,17 +140,10 @@ int main() {
     int atlas_depth = 0;
     GLuint chunk_atlas = load_atlas("atlas", paths, texture_count, 8, 8, 8, &atlas_depth);
 
-    vec3 ro, rd;
-    struct world_hit hit = {0};
-    
     // start time
     bool track_gen_time = true;
     double gen_start_time = glfwGetTime();
     double final_time = -1.0;
-
-    bool mouse_state[GLFW_MOUSE_BUTTON_LAST][2] = {0};
-    block_t selected_block_index = BLK_GLOW;
-
     u64 frame_count = 0;
 
     while (!glfwWindowShouldClose(window)) {
@@ -159,40 +152,9 @@ int main() {
         double curr_frame = glfwGetTime();
         const double dt = curr_frame - prev_frame;
         prev_frame = curr_frame;
-        cam_fps_update(&camera, window, dt);
+        // cam_fps_update(&camera, window, dt);
+        player_tick(&player, dt, !igGetIO()->WantCaptureMouse);
         world_tick(world);
-
-        for (u64 i = 0; i < GLFW_MOUSE_BUTTON_LAST; i++) {
-            mouse_state[i][1] = mouse_state[i][0];                                // previous = current
-            mouse_state[i][0] = glfwGetMouseButton(window, (int)i) == GLFW_PRESS; // current = new
-        }
-
-        if (!igGetIO()->WantCaptureMouse) {
-            // cursor screen pos
-            double mouse_x, mouse_y;
-            glfwGetCursorPos(window, &mouse_x, &mouse_y);
-            cam_screen_to_ray(&camera, (int)mouse_x, (int)mouse_y, &ro, &rd);
-            world_trace(world, ro, rd, 100.0f, &hit);
-
-            if (hit.did_hit && mouse_state[GLFW_MOUSE_BUTTON_MIDDLE][0] && !mouse_state[GLFW_MOUSE_BUTTON_MIDDLE][1]) {
-                selected_block_index = hit.block;
-            }
-
-            if (hit.did_hit && mouse_state[GLFW_MOUSE_BUTTON_LEFT][0] && !mouse_state[GLFW_MOUSE_BUTTON_LEFT][1]) {
-                // check glfw for shift
-                if (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_RIGHT_SHIFT) == GLFW_PRESS || selected_block_index == BLK_AIR) {
-                    // remove block
-                    world_set_block(world, hit.pos.x, hit.pos.y, hit.pos.z, BLK_AIR);
-                } else {
-                    // place block
-                    ivec3 place_pos = hit.pos;
-                    place_pos.x += hit.normal.x;
-                    place_pos.y += hit.normal.y;
-                    place_pos.z += hit.normal.z;
-                    world_set_block(world, place_pos.x, place_pos.y, place_pos.z, selected_block_index);
-                }
-            }
-        }
 
         // rendering start
         ImGui_ImplOpenGL3_NewFrame();
@@ -200,15 +162,15 @@ int main() {
         igNewFrame();
 
         gfx_enable_lines(draw_lines);
-        gfx_start_frame(&camera);
+        gfx_start_frame(player_view_proj_ptr(&player), player.frustum, player.pos);
 
-        vec3 hit_pos = v3_add(v3_cast(hit.pos), (vec3){0.5f, 0.5f, 0.5f});
+        vec3 hit_pos = v3_add(v3_cast(player.last_hit.pos), (vec3){0.5f, 0.5f, 0.5f});
         dbg_cube(hit_pos, (vec3){0.54f, 0.54f, 0.54f}, C32_WHITE);
-        dbg_line(hit_pos, v3_add(hit_pos, v3_cast(hit.normal)), C32_YELLOW);
+        dbg_line(hit_pos, v3_add(hit_pos, v3_cast(player.last_hit.normal)), C32_YELLOW);
 
-        int height = world_sample_height(world, (int)camera.pos.x, (int)camera.pos.z);
-        dbg_cube((vec3){camera.pos.x, (float)height + 0.5f, camera.pos.z}, (vec3){0.54f, 0.54f, 0.54f}, C32_GREEN);
-        dbg_cube((vec3){(int)camera.pos.x + 0.5f, (float)height + 0.5f, (int)camera.pos.z + 0.5f}, (vec3){0.6f, 0.6f, 0.6f}, C32_RED);
+        int height = world_sample_height(world, (int)player.pos.x, (int)player.pos.z);
+        dbg_cube((vec3){player.pos.x, (float)height + 0.5f, player.pos.z}, (vec3){0.54f, 0.54f, 0.54f}, C32_GREEN);
+        dbg_cube((vec3){(int)player.pos.x + 0.5f, (float)height + 0.5f, (int)player.pos.z + 0.5f}, (vec3){0.6f, 0.6f, 0.6f}, C32_RED);
 
         glEnable(GL_DEPTH_TEST);
         glEnable(GL_CULL_FACE);
@@ -226,7 +188,7 @@ int main() {
 
         glViewport(0, 0, window_width, window_height);
         glPolygonMode(GL_FRONT_AND_BACK, draw_wireframe ? GL_LINE : GL_FILL);
-        world_draw(world, &camera, chunk_program, chunk_atlas, atlas_depth);
+        gfx_draw_world(world, chunk_program, chunk_atlas, atlas_depth);
 
 #pragma region DebugUI
 #if 1
@@ -242,23 +204,23 @@ int main() {
             igText("Validate world [F8]");
 
             igSeparatorText("Player");
-            igText("pos:   (%d, %d, %d)", (int)camera.pos.x, (int)camera.pos.y, (int)camera.pos.z);
-            igText("chunk: (%d, %d, %d)", u_idiv((int)camera.pos.x, C_SIZE), u_idiv((int)camera.pos.y, C_SIZE), u_idiv((int)camera.pos.z, C_SIZE));
-            igText("hunk:   (%d, %d)", u_idiv((int)camera.pos.x, HW_SIZE), u_idiv((int)camera.pos.z, HW_SIZE));
-            igText("ground height: %d", world_sample_height(world, (int)camera.pos.x, (int)camera.pos.z));
+            igText("pos:   (%d, %d, %d)", (int)player.pos.x, (int)player.pos.y, (int)player.pos.z);
+            igText("chunk: (%d, %d, %d)", u_idiv((int)player.pos.x, C_SIZE), u_idiv((int)player.pos.y, C_SIZE), u_idiv((int)player.pos.z, C_SIZE));
+            igText("hunk:   (%d, %d)", u_idiv((int)player.pos.x, HW_SIZE), u_idiv((int)player.pos.z, HW_SIZE));
+            igText("ground height: %d", world_sample_height(world, (int)player.pos.x, (int)player.pos.z));
             const char *block_names[BLK_COUNT];
             for (int i = 0; i < BLK_COUNT; i++) {
                 block_names[i] = block_name((block_t)i);
             }
 
-            if (igCombo_Str_arr("Block Type", (int *)(&selected_block_index), block_names, BLK_COUNT, -1)) {
+            if (igCombo_Str_arr("Block Type", (int *)(&player.selected_block), block_names, BLK_COUNT, -1)) {
             }
 
             igSeparatorText("Raycast");
-            if (hit.did_hit) {
-                igText("block: %s [%i]", block_name(hit.block), (int)hit.block);
-                igText("pos: (%d, %d, %d) local (%d, %d, %d)", hit.pos.x, hit.pos.y, hit.pos.z, hit.pos.x % C_SIZE, hit.pos.y % C_SIZE, hit.pos.z % C_SIZE);
-                igText("normal: (%d, %d, %d)", hit.normal.x, hit.normal.y, hit.normal.z);
+            if (player.last_hit.did_hit) {
+                igText("block: %s [%i]", block_name(player.last_hit.block), (int)player.last_hit.block);
+                igText("pos: (%d, %d, %d) local (%d, %d, %d)", player.last_hit.pos.x, player.last_hit.pos.y, player.last_hit.pos.z, player.last_hit.pos.x % C_SIZE, player.last_hit.pos.y % C_SIZE, player.last_hit.pos.z % C_SIZE);
+                igText("normal: (%d, %d, %d)", player.last_hit.normal.x, player.last_hit.normal.y, player.last_hit.normal.z);
             } else {
                 igText("block: No hit");
                 igText("pos: -");
@@ -352,11 +314,8 @@ static void glfw_key_callback(GLFWwindow *window, int key, int scancode, int act
     if (action == GLFW_PRESS && key == GLFW_KEY_F8) {
         validate_world(world);
     }
-
-    // if (igGetIO()->WantCaptureKeyboard)return;
 }
 
-// OpenGL debug callback function
 static void GLAPIENTRY gl_debug_callback(GLenum source, GLenum type, GLuint id, GLenum severity, GLsizei length, const GLchar *message, const void *userParam) {
     // Skip notification messages for cleaner output (optional)
     if (severity == GL_DEBUG_SEVERITY_NOTIFICATION) {

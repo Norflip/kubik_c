@@ -1,7 +1,8 @@
 #include "gfx.h"
+#include "load.h"
 #include <stdio.h>
 #include <stdlib.h>
-#include "load.h"
+#include <string.h>
 
 struct linevert {
     vec3 pos;
@@ -14,20 +15,19 @@ static struct linevert *l_mapped;
 static size_t l_count, l_cap;
 static GLuint empty_vao;
 
-static const struct cam *g_active_cam = NULL;
+// static const struct cam *g_active_cam = NULL;
+
+static const mat4 *g_view_proj;
+static vec3 g_eye_pos;
+static vec4 g_frustum[6];
 static bool g_lines_enabled = true;
 static bool l_fade_enabled = true;
 
-struct {
-    GLuint ow_query_objects[2]; // Double buffer for async queries
-    uint64_t ow_samples_passed;
-    uint64_t ow_fragments_written;
-    int pingpong_frame_index;
-    float ow_ratio;
-} stats;
-
 void gfx_initialize(void) {
     glGenVertexArrays(1, &empty_vao);
+
+    g_view_proj = NULL;
+    g_eye_pos = V3_ZERO;
 
     l_program = load_program("lines", asset_path("line.vs"), asset_path("line.fs"));
     l_cap = MAX_LINES;
@@ -43,9 +43,6 @@ void gfx_initialize(void) {
     glCreateBuffers(1, &(l_vbo));
     glNamedBufferStorage(l_vbo, size_aligned, NULL, storage_flags);
     l_mapped = glMapNamedBufferRange(l_vbo, 0, size_aligned, mapping_flags);
-
-    glGenQueries(2, stats.ow_query_objects);
-    stats.pingpong_frame_index = 0;
 }
 
 void gfx_shutdown(void) {
@@ -53,26 +50,21 @@ void gfx_shutdown(void) {
     glDeleteProgram(l_program);
 }
 
-void gfx_start_frame(const struct cam *c) {
-    g_active_cam = c;
+void gfx_start_frame(const mat4 *view_proj, vec4 frustum[6], vec3 eye_pos) {
+    g_view_proj = view_proj;
+    g_eye_pos = eye_pos;
+    memcpy(g_frustum, frustum, sizeof(vec4) * 6);
     dbg_clear();
-    glBeginQuery(GL_SAMPLES_PASSED, stats.ow_query_objects[stats.pingpong_frame_index]);
 }
 
 void gfx_end_frame(void) {
-
-    glEndQuery(GL_SAMPLES_PASSED);
-
-    glGetQueryObjectui64v(stats.ow_query_objects[stats.pingpong_frame_index], GL_QUERY_RESULT, &stats.ow_samples_passed);
-    stats.ow_ratio = (float)stats.ow_samples_passed / (g_active_cam->width * g_active_cam->height);
-    stats.pingpong_frame_index = 1 - stats.pingpong_frame_index;
-
+    // render lines
     if (l_count > 0) {
         const size_t size = l_count * sizeof(struct linevert) * 2;
         // glMemoryBarrier(GL_VERTEX_ATTRIB_ARRAY_BARRIER_BIT);
         glUseProgram(l_program);
 
-        glUniformMatrix4fv(glGetUniformLocation(l_program, "vp"), 1, GL_FALSE, cam_view_proj_ptr(g_active_cam));
+        glUniformMatrix4fv(glGetUniformLocation(l_program, "vp"), 1, GL_FALSE, (const GLfloat *)g_view_proj);
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, l_vbo);
         glFlushMappedNamedBufferRange(l_vbo, 0, size);
 
@@ -89,11 +81,53 @@ void gfx_end_frame(void) {
     }
 }
 
-struct gfx_stats gfx_get_stats(void) {
-    struct gfx_stats s = {0};
-    s.samples_passed = stats.ow_samples_passed;
-    s.overdraw_ratio = stats.ow_ratio;
-    return s;
+void gfx_draw_world(struct world *w, GLuint program, GLuint atlas, int atlas_depth) {
+    mesh_batch_clear_commands(w->batch);
+
+    for (int i = 0; i < w->chunk_count; i++) {
+        struct chunk *c = w->chunks[i];
+        if (c->fill_count <= 0 || !c->mesh_handle.valid)
+            continue;
+
+        if (frustum_aabb_test(g_frustum, c->min, c->max)) {
+            struct mesh_quad *ptr = mesh_batch_handle_ptr(&c->mesh_handle);
+            struct draw_command cmd = {
+                .baseInstance = 0,
+                .instanceCount = 1,
+                .first = mesh_batch_calculate_offset(w->batch, &c->mesh_handle, sizeof(struct mesh_quad), 6),
+                .count = c->quad_count * 6,
+            };
+
+            struct instance_data data = {
+                .pos = iv3_scale(c->pos, C_SIZE),
+                .tint = C32_CLEAR,
+            };
+
+            mesh_batch_add_command(w->batch, &cmd, &data);
+            dbg_aabb(c->min, c->max, C32_WHITE);
+        }
+    }
+
+    dbg_fade(false);
+    for (int i = 0; i < w->hunk_count; i++) {
+        struct hunk *h = w->hunks[i];
+        vec3 hmin = {h->x * HW_SIZE, 0, h->z * HW_SIZE};
+        vec3 hmax = {hmin.x + HW_SIZE, H_SIZE * C_SIZE, hmin.z + HW_SIZE};
+        dbg_aabb(hmin, hmax, C32_GREEN);
+    }
+    dbg_fade(true);
+
+    glUseProgram(program);
+    glBindTextureUnit(0, atlas);
+    glUniformMatrix4fv(glGetUniformLocation(program, "vp"), 1, GL_FALSE, (const GLfloat *)g_view_proj);
+    glUniform1ui(glGetUniformLocation(program, "atlas_depth"), (u32)atlas_depth);
+
+    static GLuint empty_vao = GL_NONE;
+    if (empty_vao == GL_NONE)
+        glGenVertexArrays(1, &empty_vao);
+    glBindVertexArray(empty_vao);
+
+    mesh_batch_multidraw(w->batch, 0, 1);
 }
 
 void gfx_enable_lines(bool enable) {
@@ -111,14 +145,9 @@ void dbg_line(vec3 start, vec3 end, col32_t color) {
     if (l_count >= l_cap - 1 || !g_lines_enabled)
         return;
 
-    if (g_active_cam == NULL) {
-        fprintf(stderr, "dbg_line: no active camera set, call gfx_start_frame() first\n");
-        return;
-    }
-
     if (l_fade_enabled) {
-        float len0 = v3_len(v3_sub(start, g_active_cam->pos));
-        float len1 = v3_len(v3_sub(end, g_active_cam->pos));
+        float len0 = v3_len(v3_sub(start, g_eye_pos));
+        float len1 = v3_len(v3_sub(end, g_eye_pos));
         if (len0 > LINE_FADE_MAX_DISTANCE && len1 > LINE_FADE_MAX_DISTANCE)
             return;
         l_mapped[l_count * 2 + 0] = (struct linevert){start, adjust_alpha(color, len0)};
@@ -135,11 +164,6 @@ void dbg_aabb(vec3 min, vec3 max, col32_t color) {
 
     if (l_count >= l_cap - 1 || !g_lines_enabled)
         return;
-
-    if (g_active_cam == NULL) {
-        fprintf(stderr, "dbg_aabb: no active camera set, call gfx_start_frame() first\n");
-        return;
-    }
 
     static const vec3 BOX_CORNERS[8] = {{0, 0, 0}, {1, 0, 0}, {1, 0, 1}, {0, 0, 1}, {0, 1, 0}, {1, 1, 0}, {1, 1, 1}, {0, 1, 1}};
     vec3 corners[8];

@@ -20,7 +20,7 @@ include(${CMAKE_SOURCE_DIR}/cmake/cimgui.cmake)
 set(SRC_FILES
   src/main.c
   src/maf.c
-  src/cam.c
+  src/player.c
   src/gfx.c
   src/chunk.c
   src/world.c

@@ -1,8 +1,6 @@
 #ifndef WORLD_H
 #define WORLD_H
-#include "cam.h"
 #include "chunk.h"
-#include "gfx.h"
 #include "maf.h"
 #include "mesh.h"
 #include "queue.h"
@@ -25,8 +23,6 @@ struct hunk {
     uint8_t rain_map[HW_SIZE2];
     uint8_t temp_map[HW_SIZE2];
 };
-
-struct work;
 
 struct world {
     bool initialized;
@@ -51,7 +47,7 @@ struct world {
 
     mutex_t alloc_lock;
     mutex_t mesh_lock;
-    void* worker_arena;
+    void *worker_arena;
 };
 
 struct world_hit {
@@ -69,12 +65,8 @@ void world_set_block(struct world *w, int x, int y, int z, block_t block);
 block_t world_get_block(struct world *w, int x, int y, int z);
 int world_sample_height(struct world *w, int x, int z);
 bool world_is_working(struct world *w);
-
 void world_tick(struct world *w);
-
-// move to render/gfx.h?
-void world_draw(struct world *w, struct cam *cam, GLuint program, GLuint atlas, int atlas_depth);
-bool world_trace(struct world *w, vec3 o, vec3 dir, float max_distance, struct world_hit *hit);
+bool world_trace(struct world *w, vec3 ro, vec3 rd, float max_distance, struct world_hit *hit);
 
 // Debugging
 // validates the chunks and their data
