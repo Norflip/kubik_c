@@ -123,7 +123,7 @@ int main() {
 
     world = malloc(sizeof(struct world));
     memset(world, 0, sizeof(struct world));
-    world_init(world, 0, 4, 12, true);
+    world_init(world, 0, 4, 3, true);
     world_generate_initial(world);
     
     printf("Waiting for initial generation to complete...\n");
@@ -148,13 +148,8 @@ int main() {
     double gen_start_time = glfwGetTime();
     double final_time = -1.0;
 
-    // bool mouse_state[GLFW_MOUSE_BUTTON_LAST] = {0};
-    // bool mouse_state_prev[GLFW_MOUSE_BUTTON_LAST] = {0};
     bool mouse_state[GLFW_MOUSE_BUTTON_LAST][2] = {0};
     block_t selected_block_index = BLK_GLOW;
-
-   // printf("sizeof(struct mesh_quad) = %zu\n", sizeof(struct mesh_quad));
-   // printf("Allocation size = %zu\n", C_SIZE3 * DIR_COUNT * sizeof(struct mesh_quad));
 
     u64 frame_count = 0;
 

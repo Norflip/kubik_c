@@ -115,7 +115,6 @@ static inline uint8_t get_boundary_mask(int x, int y, int z, int *count) {
     return mask;
 }
 
-// we should probably try and split this up into separate functions
 static void set_padded_blockstate(struct chunk *c, int x, int y, int z, struct block_state state) {
     if (!pos_on_border(x, y, z))
         return;
@@ -422,6 +421,8 @@ size_t chunk_generate_mesh_data(struct chunk *c, void *buffer) {
     return added;
 }
 
+#define TMP_LIGHT_MASK 31 // (1 << 5) - 1
+
 struct light_node {
     iterator_t it;
     light_t light;
@@ -442,16 +443,21 @@ static inline bool is_solid_blockstate(struct block_state *state) {
 
 // temporary light functions, will be replaced with proper multi channel light system later
 static inline bool light_lessthan(light_t a, light_t b) {
-    return a < b;
+    // return a < b;
+    return (a & TMP_LIGHT_MASK) < (b & TMP_LIGHT_MASK);
 }
 
 static inline light_t light_decrement(light_t light) {
-    light_t l = light - (0xFF / 16);
+    light_t l = (light & TMP_LIGHT_MASK) - 1;
     return (l > 0) ? l : 0;
 }
 
 static inline light_t light_max(light_t a, light_t b) {
-    return (a > b) ? a : b;
+    return ((a & TMP_LIGHT_MASK) > (b & TMP_LIGHT_MASK)) ? a : b;
+}
+
+static inline light_t light_greater_equal(light_t a, light_t b) {
+    return light_lessthan(b, a) || (a & TMP_LIGHT_MASK) == (b & TMP_LIGHT_MASK);
 }
 
 static void add_floodfill_light(queue_t *q) {
@@ -518,7 +524,7 @@ static void rem_floodfill_light(queue_t *remq, queue_t *addq) {
             }
 
             light_t neighbour_level = neighbour_state->light;
-            if (neighbour_level != 0 && neighbour_level < node.light) {
+            if (neighbour_level != 0 && light_lessthan(neighbour_level, node.light)) {
                 // set the light level
                 neighbour_state->light = 0;
                 set_padded_blockstate(it.chunk, it.x, it.y, it.z, *neighbour_state);
@@ -527,7 +533,7 @@ static void rem_floodfill_light(queue_t *remq, queue_t *addq) {
                 neighbour_node.it = it;
                 neighbour_node.light = neighbour_level;
                 queue_enqueue(remq, &neighbour_node);
-            } else if (neighbour_level >= node.light) {
+            } else if ( light_greater_equal(neighbour_level, node.light)) {
                 struct light_node neighbour_node;
                 neighbour_node.it = it;
                 queue_enqueue(addq, &neighbour_node);

@@ -16,8 +16,11 @@ struct thread_ctx {
     struct world *w;
 };
 
+typedef void (*work_func_t)(struct chunk *c, struct world *w, struct work *self, int thread_index);
+
 struct work {
-    void (*func)(struct chunk *c, struct world *w, struct work *self, int thread_index);
+    char dbg_label[64];
+    work_func_t func;
     int priority;
     bool is_column;
     bool in_meshing_dist;
@@ -34,7 +37,10 @@ static int work_cmp(const void *a, const void *b) {
     return (wa->priority > wb->priority) - (wa->priority < wb->priority);
 }
 
-static void push_work(struct world *world, struct work *work) {
+static void push_work(struct world *world, struct work *work, const char *label) {
+    if (label)
+        strcpy(work->dbg_label, label);
+
     mutex_lock(&world->work_lock);
     pqueue_enqueue(&world->work_queue, work);
     cond_signal(&world->work_cond);
@@ -74,8 +80,8 @@ static struct hunk *get_hunk(struct world *w, int x, int z) {
 }
 
 static struct hunk *get_hunk_for_chunk(struct world *w, struct chunk *c) {
-    int hx = u_idiv(c->pos.x, H_SIZE);
-    int hz = u_idiv(c->pos.z, H_SIZE);
+    const int hx = u_idiv(c->pos.x, H_SIZE);
+    const int hz = u_idiv(c->pos.z, H_SIZE);
     return get_hunk(w, hx, hz);
 }
 
@@ -90,20 +96,15 @@ static void generate_hunk_noise_maps(struct world *w, struct hunk *hunk) {
 
     const int hunk_x = hunk->x * HW_SIZE;
     const int hunk_z = hunk->z * HW_SIZE;
-
     for (int z = 0; z < HW_SIZE; z++) {
         for (int x = 0; x < HW_SIZE; x++) {
-            float n = fnlGetNoise2D(&temp_state, x + hunk_x, z + hunk_z);
-            n = (n + 1.0f) * 0.5f; // map from [-1, 1] to [0, 1]
-            hunk->temp_map[z * HW_SIZE + x] = (uint8_t)(n * 255);
-        }
-    }
+            float temp_n = fnlGetNoise2D(&temp_state, x + hunk_x, z + hunk_z);
+            temp_n = (temp_n + 1.0f) * 0.5f; // map from [-1, 1] to [0, 1]
+            hunk->temp_map[z * HW_SIZE + x] = (uint8_t)(temp_n * 255);
 
-    for (int z = 0; z < HW_SIZE; z++) {
-        for (int x = 0; x < HW_SIZE; x++) {
-            float n = fnlGetNoise2D(&rain_state, x + hunk_x, z + hunk_z);
-            n = (n + 1.0f) * 0.5f; // map from [-1, 1] to [0, 1]
-            hunk->rain_map[z * HW_SIZE + x] = (uint8_t)(n * 255);
+            float rain_n = fnlGetNoise2D(&rain_state, x + hunk_x, z + hunk_z);
+            rain_n = (rain_n + 1.0f) * 0.5f; // map from [-1, 1] to [0, 1]
+            hunk->rain_map[z * HW_SIZE + x] = (uint8_t)(rain_n * 255);
         }
     }
 }
@@ -188,8 +189,9 @@ static void *worker_func(void *arg) {
     struct work work = {0};
     while (true) {
         pop_work(w, &work);
-        if (work.func)
-            work.func(work.chunk, w, &work, ctx->index);
+        // printf("Worker thread %d processing work %s with priority %d. queue count: %d\n", ctx->index, work.dbg_label, work.priority, w->work_queue.count);
+        assert(work.func != NULL);
+        work.func(work.chunk, w, &work, ctx->index);
     }
 
     return NULL;
@@ -248,32 +250,27 @@ static void gen_chunk_mesh_fn(struct chunk *c, struct world *w, struct work *sel
     free(quads);
 #else
     assert(c != NULL);
-
     for (int face = 0; face < DIR_COUNT; face++) {
         struct chunk *n = c->neighbours[face];
-        if (n && n->state < C_STATE_GENERATED) {
-            self->priority++;
-            push_work(w, self);
+        if (n && n->state == C_STATE_GENERATING) {
+            self->priority += 10;
+            printf("Deferring meshing of chunk (%d, %d, %d) because neighbour (%d, %d, %d) is not ready [state %i]\n", c->pos.x, c->pos.y, c->pos.z, n->pos.x, n->pos.y, n->pos.z, n->state);
+            push_work(w, self, NULL);
             return;
         }
     }
 
     c->state = C_STATE_MESHING;
-
     const size_t max_quads = C_SIZE3 * DIR_COUNT;
     const size_t alloc_size = max_quads * sizeof(struct mesh_quad);
-
-    // printf("[Thread %lu] Allocating %zu bytes at chunk (%d,%d,%d)\n", GetCurrentThreadId(), alloc_size, c->pos.x, c->pos.y, c->pos.z);
-
-    // void *quads = malloc(alloc_size);
 
     void *quads = (void *)((uintptr_t)w->worker_arena + (alloc_size * thread_index));
     memset(quads, 0xDD, alloc_size);
     size_t quad_count = chunk_generate_mesh_data(c, quads);
 
     if (quad_count > max_quads) {
-        fprintf(stderr, "OVERFLOW DETECTED! %zu > %zu\n", quad_count, max_quads);
-        __debugbreak();
+        fprintf(stderr, "The quad count exceeded the max_quads [%zu > %zu]\n", quad_count, max_quads);
+        return;
     }
 
     if (quad_count > 0) {
@@ -319,7 +316,7 @@ static void gen_chunk_data_fn(struct chunk *c, struct world *w, struct work *sel
 
         if (self->in_meshing_dist && chunk->fill_count > 0) {
             struct work mesh_work = (struct work){.chunk = chunk, .is_column = false, .func = gen_chunk_mesh_fn, .priority = WORK_MESH_PRIORITY_BASE};
-            push_work(w, &mesh_work);
+            push_work(w, &mesh_work, "gen_chunk_mesh_fn");
         }
 
         chunk = chunk->neighbours[DIR_DOWN];
@@ -383,7 +380,7 @@ static void set_block_internal(struct world *w, struct chunk *c, int lx, int ly,
     }
 }
 
-void world_init(struct world *w, int seed, int num_worker_threads, int load_radius, bool flatgrass) {
+void world_init(struct world *w, int seed, int num_workers, int load_radius, bool flatgrass) {
     memset(w, 0, sizeof(struct world));
 
     const int SIZE = 256;
@@ -422,11 +419,10 @@ void world_init(struct world *w, int seed, int num_worker_threads, int load_radi
     // create num_worker_threads of the quad memory
     const size_t max_quads = C_SIZE3 * DIR_COUNT;
     const size_t alloc_size = max_quads * sizeof(struct mesh_quad);
-
-    w->worker_arena = malloc(alloc_size * num_worker_threads);
+    w->worker_arena = malloc(alloc_size * num_workers);
 
     // work queue
-    w->work_queue = pqueue_make(sizeof(struct work), 512, work_cmp);
+    w->work_queue = pqueue_make(sizeof(struct work), 2048, work_cmp);
     mutex_init(&w->work_lock);
     cond_init(&w->work_cond);
     mutex_init(&w->alloc_lock);
@@ -434,7 +430,7 @@ void world_init(struct world *w, int seed, int num_worker_threads, int load_radi
 
     printf("World initialized with seed %d\n", seed);
 
-    w->num_worker_threads = num_worker_threads;
+    w->num_worker_threads = num_workers;
     thread_t thread;
     for (int i = 0; i < w->num_worker_threads; i++) {
         struct thread_ctx *ctx = malloc(sizeof(struct thread_ctx));
@@ -459,7 +455,7 @@ static void push_column_work(struct world *w, int x, int z, int min_y, int max_y
     work.func = gen_chunk_data_fn;
     work.priority = priority;
     work.in_meshing_dist = in_meshing_dist;
-    push_work(w, &work);
+    push_work(w, &work, "gen_chunk_data_fn");
 }
 
 static int get_chunk_column_priority(int x, int z, int center_x, int center_z) {
@@ -620,6 +616,11 @@ void world_tick(struct world *w) {
     for (int i = 0; i < w->chunk_count; i++) {
         struct chunk *c = w->chunks[i];
         if (c->dirty && c->state == C_STATE_MESHED) {
+            // assert(w->dirty_chunk_count < w->dirty_chunk_cap);
+            if (w->dirty_chunk_count >= w->dirty_chunk_cap) {
+                fprintf(stderr, "world_tick: dirty chunk array full (%d)\n", w->dirty_chunk_cap);
+                break;
+            }
             w->dirty_chunks[w->dirty_chunk_count++] = c;
         }
     }
@@ -627,8 +628,9 @@ void world_tick(struct world *w) {
     for (int i = 0; i < w->dirty_chunk_count; i++) {
         struct chunk *c = w->dirty_chunks[i];
         struct work work = (struct work){.chunk = c, .is_column = false, .func = gen_chunk_mesh_fn, .priority = WORK_MESH_PRIORITY_BASE};
-        push_work(w, &work);
+        push_work(w, &work, "gen_chunk_mesh_fn");
     }
+
     w->dirty_chunk_count = 0;
 }
 
@@ -975,11 +977,15 @@ static void gen_chunk_base_flatgrass(struct world *w, struct chunk *c) {
             for (int y = 0; y < C_SIZE; y++) {
                 block_t block = BLK_AIR;
                 int wy = y + c->pos.y * C_SIZE;
+
+                int h = x == 0 ? 50 : flatgrass_height;
+
                 if (wy == 0) {
                     block = BLK_BASE;
-                } else if (wy < flatgrass_height) {
+                } else if (wy < h) {
                     block = BLK_STONE;
                 }
+
                 set_block_internal(w, c, x, y, z, block, false);
             }
         }

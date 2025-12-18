@@ -56,7 +56,7 @@ static const char **block_texture_paths(int *out_count) {
 
 static u32 block_default_light(block_t b) {
     if (b == BLK_GLOW)
-        return 0xFF;
+        return 16;
     return 0;
 }
 

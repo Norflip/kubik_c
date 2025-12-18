@@ -24,7 +24,7 @@ bool queue_empty(const queue_t *queue);
 
 // priority queue
 typedef struct pqueue {
-    void *pqueue;
+    void *data;
     u64 elem_size;
     u64 count, cap;
     void *_temp;

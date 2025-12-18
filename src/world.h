@@ -61,7 +61,7 @@ struct world_hit {
     bool did_hit;
 };
 
-void world_init(struct world *w, int seed, int num_worker_threads, int load_radius, bool flatgrass);
+void world_init(struct world *w, int seed, int num_workers, int load_radius, bool flatgrass);
 void world_generate_initial(struct world *w);
 
 struct chunk *world_get_chunk(struct world *w, int x, int y, int z);

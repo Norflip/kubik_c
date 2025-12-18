@@ -111,8 +111,8 @@ void main () {
     outData.texIndex = q.tex;
     outData.face = face;
     outData.tint = per_chunk_data[gl_DrawID].tint;
-    outData.light_test = float(q.light & 0xFF) / 0xFF;
-    
+    outData.light_test = float(q.light & 31) / 31.0;
+
     //float((q.light >> (corner_idx * 8)) & 0xFF) / 255.0;
     //uint uv_corner_offset = rng_value(idx / 6) % 4;
     //outData.uv = corner_uv_lookup[(uv_corner_offset + corner_idx) % 4];

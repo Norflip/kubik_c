@@ -88,24 +88,36 @@ bool queue_empty(const queue_t *queue) {
     return queue->count == 0;
 }
 
+#define ASSERT_PQUEUE_VALID(pq)       \
+    do {                              \
+        assert((pq) != NULL);         \
+        assert((pq)->data != NULL); \
+        assert((pq)->_temp != NULL);  \
+    } while (0)
+
 // PRIORITY queueUE IMPLEMENTATION
 static inline void swap_work(struct pqueue *pqueue, void *a, void *b) {
+    ASSERT_PQUEUE_VALID(pqueue);
+    assert(a != NULL && b != NULL);
+
     memcpy(pqueue->_temp, a, pqueue->elem_size);
     memcpy(a, b, pqueue->elem_size);
     memcpy(b, pqueue->_temp, pqueue->elem_size);
 }
 
 static inline void *get_elem_ptr(pqueue_t *pqueue, size_t index) {
-    return (void *)((uintptr_t)pqueue->pqueue + (index * pqueue->elem_size));
+    return (void *)((uintptr_t)pqueue->data + (index * pqueue->elem_size));
 }
 
 static void heap_up(struct pqueue *pqueue, size_t index) {
     while (index > 0) {
         size_t parent_idx = (index - 1) / 2;
-        if (pqueue->cmp(get_elem_ptr(pqueue, index), get_elem_ptr(pqueue, parent_idx)) >= 0)
+        void *parent_ptr = get_elem_ptr(pqueue, parent_idx);
+        void *index_ptr = get_elem_ptr(pqueue, index);
+        if (pqueue->cmp(index_ptr, parent_ptr) >= 0)
             break;
 
-        swap_work(pqueue, get_elem_ptr(pqueue, index), get_elem_ptr(pqueue, parent_idx));
+        swap_work(pqueue, index_ptr, parent_ptr);
         index = parent_idx;
     }
 }
@@ -116,16 +128,21 @@ static void heap_down(struct pqueue *pqueue, size_t index) {
         size_t left = 2 * index + 1;
         size_t right = 2 * index + 2;
 
-        if (left < pqueue->count && pqueue->cmp(get_elem_ptr(pqueue, left), get_elem_ptr(pqueue, smallest)) < 0)
+        void *left_ptr = get_elem_ptr(pqueue, left);
+        void *right_ptr = get_elem_ptr(pqueue, right);
+        void *index_ptr = get_elem_ptr(pqueue, index);
+        void *smallest_ptr = get_elem_ptr(pqueue, smallest);
+
+        if (left < pqueue->count && pqueue->cmp(left_ptr, smallest_ptr) < 0)
             smallest = left;
 
-        if (right < pqueue->count && pqueue->cmp(get_elem_ptr(pqueue, right), get_elem_ptr(pqueue, smallest)) < 0)
+        if (right < pqueue->count && pqueue->cmp(right_ptr, smallest_ptr) < 0)
             smallest = right;
 
         if (smallest == index)
             break;
 
-        swap_work(pqueue, get_elem_ptr(pqueue, index), get_elem_ptr(pqueue, smallest));
+        swap_work(pqueue, index_ptr, smallest_ptr);
         index = smallest;
     }
 }
@@ -136,13 +153,13 @@ pqueue_t pqueue_make(u64 stride, u64 capacity, int (*cmp)(const void *a, const v
     while (pqueue.cap < capacity)
         pqueue.cap <<= 1;
 
-    pqueue.pqueue = malloc(pqueue.cap * stride + stride);
-    if (!pqueue.pqueue) {
+    pqueue.data = malloc(pqueue.cap * stride + stride);
+    if (!pqueue.data) {
         fprintf(stderr, "pqueue_create: failed to allocate memory for pqueue and temp storage\n");
         exit(EXIT_FAILURE);
     }
 
-    pqueue._temp = (void *)((uintptr_t)pqueue.pqueue + pqueue.cap * stride);
+    pqueue._temp = (void *)((uintptr_t)pqueue.data + pqueue.cap * stride);
     pqueue.cmp = cmp;
     pqueue.elem_size = stride;
     pqueue.count = 0;
@@ -150,7 +167,7 @@ pqueue_t pqueue_make(u64 stride, u64 capacity, int (*cmp)(const void *a, const v
 }
 
 void pqueue_destroy(pqueue_t *pqueue) {
-    free(pqueue->pqueue);
+    free(pqueue->data);
     free(pqueue->_temp);
     memset(pqueue, 0, sizeof(pqueue_t));
 }
@@ -158,12 +175,12 @@ void pqueue_destroy(pqueue_t *pqueue) {
 bool pqueue_enqueue(pqueue_t *pqueue, const void *elem) {
     if (pqueue->count >= pqueue->cap) {
         pqueue->cap <<= 1;
-        void *new_pqueue = realloc(pqueue->pqueue, pqueue->cap * pqueue->elem_size);
+        void *new_pqueue = realloc(pqueue->data, pqueue->cap * pqueue->elem_size);
         if (!new_pqueue) {
             fprintf(stderr, "Failed to resize work queueue\n");
             return false;
         }
-        pqueue->pqueue = new_pqueue;
+        pqueue->data = new_pqueue;
     }
 
     memcpy(get_elem_ptr(pqueue, pqueue->count), elem, pqueue->elem_size);
@@ -178,6 +195,7 @@ bool pqueue_dequeue(pqueue_t *pqueue, void *out_elem) {
     }
     memcpy(out_elem, get_elem_ptr(pqueue, 0), pqueue->elem_size);
     pqueue->count--;
+
     if (pqueue->count > 0) {
         memcpy(get_elem_ptr(pqueue, 0), get_elem_ptr(pqueue, pqueue->count), pqueue->elem_size);
         heap_down(pqueue, 0);
