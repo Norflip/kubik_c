@@ -1,8 +1,8 @@
 #ifndef MAF_H
 #define MAF_H
 #include <math.h>
-#include <stdint.h>
 #include <stdbool.h>
+#include <stdint.h>
 
 // general shiet
 #define PI (3.14159265359f)
@@ -33,11 +33,17 @@ typedef struct {
     int x, y;
 } ivec2;
 
+typedef struct {
+    vec3 min;
+    vec3 max;
+} aabb_t;
+
 // casts to float*
 #define maf_ptr(f) ((float *)&(f))
 
 // vec3
 #define V3_ZERO (vec3){0.0f, 0.0f, 0.0f}
+#define V3_ONE (vec3){1.0f, 1.0f, 1.0f}
 #define V3_UP (vec3){0.0f, 1.0f, 0.0f}
 #define V3_RIGHT (vec3){1.0f, 0.0f, 0.0f}
 #define V3_FORWARD (vec3){0.0f, 0.0f, 1.0f}
@@ -57,6 +63,8 @@ vec3 v3_cross(vec3 a, vec3 b);
 float v3_dot(vec3 a, vec3 b);
 float v3_len(vec3 v);
 float v3_lensqr(vec3 v);
+vec3 v3_clamp(vec3 v, vec3 min, vec3 max);
+
 
 // ivec3
 ivec3 iv3_add(ivec3 a, ivec3 b);
@@ -64,6 +72,7 @@ ivec3 iv3_sub(ivec3 a, ivec3 b);
 ivec3 iv3_scale(ivec3 v, int s);
 ivec3 iv3_div(ivec3 v, int d);
 ivec3 iv3_floor(vec3 v);
+ivec3 iv3_wrap(ivec3 v, int l);
 
 // mat4
 // http://www.opengl-tutorial.org/beginners-tutorials/tutorial-3-matrices/
@@ -105,7 +114,6 @@ vec4 quat_inverse(vec4 q);
 
 // frustum
 void frustum_make(mat4 m, vec4 frustum[6]);
-bool frustum_aabb_test(vec4 frustum[6], vec3 min, vec3 max);
-
+bool frustum_aabb_test(vec4 frustum[6], aabb_t bounds);
 
 #endif

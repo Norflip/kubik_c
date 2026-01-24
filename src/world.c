@@ -8,6 +8,24 @@
 #define FNL_IMPL
 #include <FastNoiseLite.h>
 
+#define H_SIZE 16
+#define H_SIZE2 (H_SIZE * H_SIZE)
+#define H_SIZE3 (H_SIZE * H_SIZE * H_SIZE)
+#define HW_SIZE (H_SIZE * C_SIZE)
+#define HW_SIZE2 (HW_SIZE * HW_SIZE)
+
+struct hunk {
+    int x, z;
+    struct chunk *chunks[H_SIZE3];
+    int chunk_count;
+    uint16_t height_map[HW_SIZE2];
+    aabb_t bounds;
+
+    // noise maps
+    uint8_t rain_map[HW_SIZE2];
+    uint8_t temp_map[HW_SIZE2];
+};
+
 // work related stuff
 #define WORK_MESH_PRIORITY_BASE 100
 
@@ -16,6 +34,7 @@ struct thread_ctx {
     struct world *w;
 };
 
+struct work;
 typedef void (*work_func_t)(struct chunk *c, struct world *w, struct work *self, int thread_index);
 
 struct work {
@@ -67,6 +86,11 @@ static inline void relative_pos(int x, int y, int z, int size, int *hx, int *hy,
     *lx = u_wrap(x, size);
     *ly = u_wrap(y, size);
     *lz = u_wrap(z, size);
+}
+
+static inline void relative_pos2(ivec3 pos, int size, ivec3 *high, ivec3 *low) {
+    *high = iv3_div(pos, size);
+    *low = iv3_wrap(pos, size);
 }
 
 static struct hunk *get_hunk(struct world *w, int x, int z) {
@@ -235,12 +259,12 @@ static void gen_chunk_mesh_fn(struct chunk *c, struct world *w, struct work *sel
 
     if (quad_count > 0) {
         if (c->mesh_handle.valid) {
-            mesh_batch_free(w->batch, &c->mesh_handle);
+            mesh_buffer_free(w->batch, &c->mesh_handle);
             c->mesh_handle.valid = false;
         }
 
         // worldrnd_upload(&w->rnd, c, quads, quad_count * sizeof(struct mesh_quad));
-        if (!mesh_batch_alloc(w->batch, quads, quad_count * sizeof(struct mesh_quad), &c->mesh_handle)) {
+        if (!mesh_buffer_alloc(w->batch, quads, quad_count * sizeof(struct mesh_quad), &c->mesh_handle)) {
             fprintf(stderr, "gen_chunk_mesh_fn: failed to allocate mesh batch for chunk (%d, %d, %d)\n", c->pos.x, c->pos.y, c->pos.z);
         }
     }
@@ -274,15 +298,15 @@ static void gen_chunk_mesh_fn(struct chunk *c, struct world *w, struct work *sel
     }
 
     if (quad_count > 0) {
-        if (mesh_batch_handle_is_valid(&c->mesh_handle)) {
+        if (mesh_buffer_handle_is_valid(&c->mesh_handle)) {
             mutex_lock(&w->mesh_lock);
-            mesh_batch_free(w->batch, &c->mesh_handle);
+            mesh_buffer_free(w->batch, &c->mesh_handle);
             mutex_unlock(&w->mesh_lock);
         }
 
         mutex_lock(&w->mesh_lock);
-        if (!mesh_batch_alloc(w->batch, quads, quad_count * sizeof(struct mesh_quad), &c->mesh_handle)) {
-            fprintf(stderr, "mesh_batch_alloc failed\n");
+        if (!mesh_buffer_alloc(w->batch, quads, quad_count * sizeof(struct mesh_quad), &c->mesh_handle)) {
+            fprintf(stderr, "mesh_buffer_alloc failed\n");
         }
         mutex_unlock(&w->mesh_lock);
     }
@@ -414,7 +438,7 @@ void world_init(struct world *w, int seed, int num_workers, int load_radius, boo
         exit(EXIT_FAILURE);
     }
 
-    w->batch = mesh_batch_init("chunk_mesh_batch", MB(32), KB(2), H_SIZE3, sizeof(struct instance_data));
+    w->batch = mesh_buffer_init("chunk_mesh_buffer", MB(32), KB(2), H_SIZE3, sizeof(uint32_t) * 4);
 
     // create num_worker_threads of the quad memory
     const size_t max_quads = C_SIZE3 * DIR_COUNT;
@@ -696,6 +720,13 @@ bool world_trace(struct world *w, vec3 ro, vec3 rd, float max_distance, struct w
     return false;
 }
 
+aabb_t world_get_hunk_bounds(struct world *w, struct hunk *h) {
+    aabb_t bounds;
+    bounds.min = (vec3){h->x * HW_SIZE, 0, h->z * HW_SIZE};
+    bounds.max = (vec3){(h->x + 1) * HW_SIZE, H_SIZE * C_SIZE, (h->z + 1) * HW_SIZE};
+    return bounds;
+}
+
 static void validate_chunk_neighbour_sync(struct chunk *c) {
     for (int face = 0; face < DIR_COUNT; face++) {
         struct chunk *n = c->neighbours[face];
@@ -943,16 +974,16 @@ static void gen_chunk_base_flatgrass(struct world *w, struct chunk *c) {
     }
 }
 
-static inline bool check_air_above(iterator_t *it, int n) {
+static inline bool check_air_above(chunk_iterator_t *it, int n) {
     for (int i = 0; i < n; i++) {
         if (it->chunk == NULL)
             return true;
-        struct block_state *bs = iterator_get_block_state_ptr(it);
+        struct block_state *bs = chunk_iterator_get_block_state_ptr(it);
         if (bs == NULL)
             return true;
         if (bs->block != BLK_AIR)
             return false;
-        iterator_up(it);
+        chunk_iterator_up(it);
     }
     return true;
 }
@@ -992,11 +1023,11 @@ static void gen_chunk_surface(struct world *w, struct chunk *c) {
                 // would be the first stone in the column
                 // check if we have required_air_above blocks of air above
                 // if so it's a surface block and we can replace it with grass and move down with some dirt
-                iterator_t pos_a = iterator_make(c, x, y, z);
+                chunk_iterator_t pos_a = chunk_iterator_make(c, x, y, z);
 
                 if (steps_down < required_air_above) {
                     // we already know there is enough air above
-                    iterator_up(&pos_a);
+                    chunk_iterator_up(&pos_a);
                     if (!check_air_above(&pos_a, required_air_above))
                         break;
                 }
@@ -1006,8 +1037,8 @@ static void gen_chunk_surface(struct world *w, struct chunk *c) {
                 dirt_t = (dirt_t + 1.0f) * 0.5f;
                 int dirt_depth = min_dirt_depth + (int)((max_dirt_depth - min_dirt_depth) * u_clamp(dirt_t, 0.0f, 1.0f));
 
-                iterator_t pos_b = iterator_make(c, x, y, z);
-                iterator_down(&pos_b);
+                chunk_iterator_t pos_b = chunk_iterator_make(c, x, y, z);
+                chunk_iterator_down(&pos_b);
 
                 for (int d = 0; d < dirt_depth; d++) {
                     if (pos_a.chunk == NULL)
@@ -1016,7 +1047,7 @@ static void gen_chunk_surface(struct world *w, struct chunk *c) {
                     if (b != BLK_STONE)
                         break;
                     set_block_internal(w, pos_b.chunk, pos_b.x, pos_b.y, pos_b.z, subsurface_block, false);
-                    iterator_down(&pos_b);
+                    chunk_iterator_down(&pos_b);
                 }
                 break;
             }

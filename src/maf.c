@@ -45,6 +45,10 @@ float v3_lensqr(vec3 v) {
     return v.x * v.x + v.y * v.y + v.z * v.z;
 }
 
+vec3 v3_clamp(vec3 v, vec3 min, vec3 max) {
+    return (vec3){.x = fmaxf(min.x, fminf(max.x, v.x)), .y = fmaxf(min.y, fminf(max.y, v.y)), .z = fmaxf(min.z, fminf(max.z, v.z))};
+}
+
 // ivec3
 ivec3 iv3_add(ivec3 a, ivec3 b) {
     return (ivec3){a.x + b.x, a.y + b.y, a.z + b.z};
@@ -66,6 +70,11 @@ ivec3 iv3_div(ivec3 v, int d) {
 
 ivec3 iv3_floor(vec3 v) {
     return (ivec3){(int)floorf(v.x), (int)floorf(v.y), (int)floorf(v.z)};
+}
+
+ivec3 iv3_wrap(ivec3 v, int l) {
+#define wrap_l(x, l) ((((x) % (l)) + (l)) % (l))
+    return (ivec3){wrap_l(v.x, l), wrap_l(v.y, l), wrap_l(v.z, l)};
 }
 
 // mat4
@@ -441,16 +450,17 @@ void frustum_make(mat4 m, vec4 frustum[6]) {
     }
 }
 
-bool frustum_aabb_test(vec4 frustum[6], vec3 min, vec3 max) {
+bool frustum_aabb_test(vec4 frustum[6], aabb_t bounds) {
+
     vec3 corners[8];
-    corners[0] = (vec3){min.x, min.y, min.z};
-    corners[1] = (vec3){min.x, min.y, max.z};
-    corners[2] = (vec3){min.x, max.y, min.z};
-    corners[3] = (vec3){min.x, max.y, max.z};
-    corners[4] = (vec3){max.x, min.y, min.z};
-    corners[5] = (vec3){max.x, min.y, max.z};
-    corners[6] = (vec3){max.x, max.y, min.z};
-    corners[7] = (vec3){max.x, max.y, max.z};
+    corners[0] = (vec3){bounds.min.x, bounds.min.y, bounds.min.z};
+    corners[1] = (vec3){bounds.min.x, bounds.min.y, bounds.max.z};
+    corners[2] = (vec3){bounds.min.x, bounds.max.y, bounds.min.z};
+    corners[3] = (vec3){bounds.min.x, bounds.max.y, bounds.max.z};
+    corners[4] = (vec3){bounds.max.x, bounds.min.y, bounds.min.z};
+    corners[5] = (vec3){bounds.max.x, bounds.min.y, bounds.max.z};
+    corners[6] = (vec3){bounds.max.x, bounds.max.y, bounds.min.z};
+    corners[7] = (vec3){bounds.max.x, bounds.max.y, bounds.max.z};
 
     for (int i = 0; i < 6; i++) {
         vec4 plane = frustum[i];

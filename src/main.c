@@ -109,6 +109,9 @@ int main() {
     ImGui_ImplGlfw_InitForOpenGL(window, true);
     ImGui_ImplOpenGL3_Init("#version 460");
 
+
+
+
     bool showDemoWindow = true;
     bool showAnotherWindow = false;
     ImVec4 clearColor = {0.4f, 0.3f, 0.5f, 1.0f};
@@ -118,8 +121,7 @@ int main() {
     gfx_initialize();
 
     world = malloc(sizeof(struct world));
-    memset(world, 0, sizeof(struct world));
-    world_init(world, 0, 4, 3, true);
+    world_init(world, 0, 4, 3, false);
     world_generate_initial(world);
 
     struct player player;
@@ -206,7 +208,6 @@ int main() {
             igSeparatorText("Player");
             igText("pos:   (%d, %d, %d)", (int)player.pos.x, (int)player.pos.y, (int)player.pos.z);
             igText("chunk: (%d, %d, %d)", u_idiv((int)player.pos.x, C_SIZE), u_idiv((int)player.pos.y, C_SIZE), u_idiv((int)player.pos.z, C_SIZE));
-            igText("hunk:   (%d, %d)", u_idiv((int)player.pos.x, HW_SIZE), u_idiv((int)player.pos.z, HW_SIZE));
             igText("ground height: %d", world_sample_height(world, (int)player.pos.x, (int)player.pos.z));
             const char *block_names[BLK_COUNT];
             for (int i = 0; i < BLK_COUNT; i++) {
@@ -242,7 +243,8 @@ int main() {
             igText("Chunk Count: %d", world->chunk_count);
             igText("Hunk Count: %d", world->hunk_count);
             igSeparatorText("Renderer");
-            mesh_batch_t *batch = world->batch;
+
+            mesh_buffer_t *batch = world->batch;
             char str_id[64];
             snprintf(str_id, sizeof(str_id), "buf_%d", 0);
             if (igTreeNode_StrStr(str_id, "buffer %d", 0)) {

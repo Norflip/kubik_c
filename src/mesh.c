@@ -21,7 +21,7 @@ static inline void set_object_label(GLuint buffer, const char *format, const cha
     glObjectLabel(GL_BUFFER, buffer, -1, label);
 }
 
-static u64 find_free_page(const mesh_batch_t *batch) {
+static u64 find_free_page(const mesh_buffer_t *batch) {
 
     // start search after the hint index
     for (u64 word = batch->last_alloc_word; word < batch->bitmap_word_count; word++) {
@@ -52,7 +52,7 @@ static u64 find_free_page(const mesh_batch_t *batch) {
     return -1;
 }
 
-static u64 find_contiguous_pages(mesh_batch_t *batch, u64 page_count) {
+static u64 find_contiguous_pages(mesh_buffer_t *batch, u64 page_count) {
     if (page_count == 0 || page_count > batch->page_count) {
         printf("find_contiguous_pages: invalid request for %zu pages\n", page_count);
         return -1;
@@ -81,13 +81,13 @@ static u64 find_contiguous_pages(mesh_batch_t *batch, u64 page_count) {
     return -1;
 }
 
-mesh_batch_t *mesh_batch_init(const char *name, u64 buffer_size, u64 page_size, u64 max_items, u64 object_stride) {
-    mesh_batch_t *batch = malloc(sizeof(mesh_batch_t));
+mesh_buffer_t *mesh_buffer_init(const char *name, u64 buffer_size, u64 page_size, u64 max_items, u64 object_stride) {
+    mesh_buffer_t *batch = malloc(sizeof(mesh_buffer_t));
     if (!batch) {
-        fprintf(stderr, "mesh_batch_init: failed to allocate mesh_batch\n");
+        fprintf(stderr, "mesh_buffer_init: failed to allocate mesh_buffer\n");
         return NULL;
     }
-    memset(batch, 0, sizeof(mesh_batch_t));
+    memset(batch, 0, sizeof(mesh_buffer_t));
     batch->items_added = 0;
     batch->items_cap = max_items;
     batch->page_size = page_size;
@@ -138,29 +138,29 @@ mesh_batch_t *mesh_batch_init(const char *name, u64 buffer_size, u64 page_size, 
     return batch;
 }
 
-bool mesh_batch_alloc(mesh_batch_t *batch, void *data, u64 size, mesh_handle_t *handle) {
+bool mesh_buffer_alloc(mesh_buffer_t *batch, void *data, u64 size, mesh_handle_t *handle) {
     if (!batch || !data || !handle)
         return false;
 
     if (handle->valid) {
-        fprintf(stderr, "mesh_batch_alloc: handle is already valid?\n");
+        fprintf(stderr, "mesh_buffer_alloc: handle is already valid?\n");
         return false;
     }
 
     memset(handle, 0, sizeof(mesh_handle_t));
 
     if (size == 0) {
-        fprintf(stderr, "mesh_batch_alloc: cannot allocate 0 bytes\n");
+        // fprintf(stderr, "mesh_buffer_alloc: cannot allocate 0 bytes\n");
         return false;
     }
 
     if (batch->free_pages == 0) {
-        fprintf(stderr, "mesh_batch_alloc: no free pages available\n");
+        // fprintf(stderr, "mesh_buffer_alloc: no free pages available\n");
         return false;
     }
 
     if (size > batch->buffer_size) {
-        fprintf(stderr, "mesh_batch_alloc: requested size (%zu bytes) exceeds buffer size (%zu bytes)\n", size, batch->buffer_size);
+        // fprintf(stderr, "mesh_buffer_alloc: requested size (%zu bytes) exceeds buffer size (%zu bytes)\n", size, batch->buffer_size);
         return false;
     }
 
@@ -168,17 +168,15 @@ bool mesh_batch_alloc(mesh_batch_t *batch, void *data, u64 size, mesh_handle_t *
     u64 page_count = pages_required(size, batch->page_size);
     u64 start = find_contiguous_pages(batch, page_count);
 
-    // printf("mesh_batch_alloc: requested %zu bytes (%zu pages), allocated at page %zu\n", size, page_count, start);
+    // printf("mesh_buffer_alloc: requested %zu bytes (%zu pages), allocated at page %zu\n", size, page_count, start);
     if (start == -1) {
-        fprintf(stderr, "mesh_batch_alloc: failed to find space for %zu bytes (%zu pages)\n", size, page_count);
-
+        fprintf(stderr, "mesh_buffer_alloc: failed to find space for %zu bytes (%zu pages)\n", size, page_count);
         mutex_unlock(&batch->lock);
         return false;
     }
 
     if (start >= batch->page_count) {
-        fprintf(stderr, "mesh_batch_alloc: position is out of bounds\n");
-
+        fprintf(stderr, "mesh_buffer_alloc: position is out of bounds\n");
         mutex_unlock(&batch->lock);
         return false;
     }
@@ -209,8 +207,8 @@ bool mesh_batch_alloc(mesh_batch_t *batch, void *data, u64 size, mesh_handle_t *
     return true;
 }
 
-bool mesh_batch_free(mesh_batch_t *batch, mesh_handle_t *handle) {
-    if (!mesh_batch_handle_is_valid(handle))
+bool mesh_buffer_free(mesh_buffer_t *batch, mesh_handle_t *handle) {
+    if (!mesh_buffer_handle_is_valid(handle))
         return false;
 
     mutex_lock(&batch->lock);
@@ -229,9 +227,9 @@ bool mesh_batch_free(mesh_batch_t *batch, mesh_handle_t *handle) {
     return true;
 }
 
-void mesh_batch_add_command(mesh_batch_t *batch, const struct draw_command *cmd, const void *object_data) {
+void mesh_buffer_add_command(mesh_buffer_t *batch, const struct draw_command *cmd, const void *object_data) {
     if (batch->items_added >= batch->items_cap) {
-        fprintf(stderr, "mesh_batch_add_command: command buffer full (%zu)\n", batch->items_cap);
+        fprintf(stderr, "mesh_buffer_add_command: command buffer full (%zu)\n", batch->items_cap);
         return;
     }
 
@@ -246,29 +244,29 @@ void mesh_batch_add_command(mesh_batch_t *batch, const struct draw_command *cmd,
     mutex_unlock(&batch->lock);
 }
 
-void mesh_batch_clear_commands(mesh_batch_t *batch) {
+void mesh_buffer_clear_commands(mesh_buffer_t *batch) {
     mutex_lock(&batch->lock);
     batch->items_added = 0;
     mutex_unlock(&batch->lock);
 }
 
-bool mesh_batch_handle_is_valid(const mesh_handle_t *handle) {
+bool mesh_buffer_handle_is_valid(const mesh_handle_t *handle) {
     return handle && handle->valid;
 }
 
-void *mesh_batch_handle_ptr(const mesh_handle_t *handle) {
-    if (!mesh_batch_handle_is_valid(handle))
+void *mesh_buffer_handle_ptr(const mesh_handle_t *handle) {
+    if (!mesh_buffer_handle_is_valid(handle))
         return NULL;
     return handle->ptr;
 }
 
-int mesh_batch_calculate_offset(const mesh_batch_t *batch, const mesh_handle_t *handle, size_t element_stride, size_t elements_per_item) {
-    if (!mesh_batch_handle_is_valid(handle))
+int mesh_buffer_calculate_offset(const mesh_buffer_t *batch, const mesh_handle_t *handle, size_t element_stride, size_t elements_per_item) {
+    if (!mesh_buffer_handle_is_valid(handle))
         return -1;
     return (handle->page * batch->page_size / element_stride) * elements_per_item;
 }
 
-void mesh_batch_multidraw(mesh_batch_t *batch, GLuint buffer_loc, GLuint data_loc) {
+void mesh_buffer_multidraw(mesh_buffer_t *batch, GLuint buffer_loc, GLuint data_loc) {
     if (batch->items_added <= 0)
         return;
 

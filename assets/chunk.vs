@@ -63,6 +63,7 @@ out VSOut {
     vec2 uv;
     float ao;
     float light_test;
+    vec3 world_pos;
 } outData;
 
 ivec3 get_quad_pos (quad q, out uint face) {
@@ -112,6 +113,7 @@ void main () {
     outData.face = face;
     outData.tint = per_chunk_data[gl_DrawID].tint;
     outData.light_test = float(q.light & 31) / 31.0;
+    outData.world_pos = vec3(wpos);
 
     //float((q.light >> (corner_idx * 8)) & 0xFF) / 255.0;
     //uint uv_corner_offset = rng_value(idx / 6) % 4;

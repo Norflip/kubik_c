@@ -5,10 +5,18 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+
 #define NO_TEXTURE_INDEX -1
 
 typedef uint8_t block_t;
 enum { BLK_AIR = 0, BLK_BASE, BLK_STONE, BLK_DIRT, BLK_GRASS, BLK_SAND, BLK_OCEAN, BLK_GLOW, BLK_COUNT };
+
+typedef uint32_t light_t;
+
+struct block_state {
+    block_t block;
+    light_t light;
+};
 
 static inline int block_is_solid(block_t b) {
     return b != BLK_AIR && b != BLK_OCEAN;

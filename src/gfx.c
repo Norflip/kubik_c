@@ -82,38 +82,51 @@ void gfx_end_frame(void) {
 }
 
 void gfx_draw_world(struct world *w, GLuint program, GLuint atlas, int atlas_depth) {
-    mesh_batch_clear_commands(w->batch);
+    mesh_buffer_clear_commands(w->batch);
 
     for (int i = 0; i < w->chunk_count; i++) {
         struct chunk *c = w->chunks[i];
-        if (c->fill_count <= 0 || !c->mesh_handle.valid)
+        if (c->quad_count <= 0 || c->fill_count <= 0 || !c->mesh_handle.valid)
             continue;
 
-        if (frustum_aabb_test(g_frustum, c->min, c->max)) {
-            struct mesh_quad *ptr = mesh_batch_handle_ptr(&c->mesh_handle);
+        if (frustum_aabb_test(g_frustum, c->bounds)) {
+
+            // struct mesh_quad *ptr = mesh_buffer_handle_ptr(&c->mesh_handle);
             struct draw_command cmd = {
                 .baseInstance = 0,
                 .instanceCount = 1,
-                .first = mesh_batch_calculate_offset(w->batch, &c->mesh_handle, sizeof(struct mesh_quad), 6),
+                .first = mesh_buffer_calculate_offset(w->batch, &c->mesh_handle, sizeof(struct mesh_quad), 6),
                 .count = c->quad_count * 6,
             };
 
+            /*
             struct instance_data data = {
                 .pos = iv3_scale(c->pos, C_SIZE),
                 .tint = C32_CLEAR,
             };
+            */
 
-            mesh_batch_add_command(w->batch, &cmd, &data);
-            dbg_aabb(c->min, c->max, C32_WHITE);
+            ivec3 pos = iv3_scale(c->pos, C_SIZE);
+            int data[4];
+            data[0] = pos.x;
+            data[1] = pos.y;
+            data[2] = pos.z;
+            data[3] = c->tint;
+
+#if 1
+            mesh_buffer_add_command(w->batch, &cmd, data);
+#else
+            mesh_buffer_add_command2(w->batch, &c->mesh_handle, c->quad_count, &data);
+#endif
+            dbg_aabb(c->bounds, C32_WHITE);
         }
     }
 
     dbg_fade(false);
     for (int i = 0; i < w->hunk_count; i++) {
         struct hunk *h = w->hunks[i];
-        vec3 hmin = {h->x * HW_SIZE, 0, h->z * HW_SIZE};
-        vec3 hmax = {hmin.x + HW_SIZE, H_SIZE * C_SIZE, hmin.z + HW_SIZE};
-        dbg_aabb(hmin, hmax, C32_GREEN);
+        aabb_t bounds = world_get_hunk_bounds(w, h);
+        dbg_aabb(bounds, C32_GREEN);
     }
     dbg_fade(true);
 
@@ -121,13 +134,14 @@ void gfx_draw_world(struct world *w, GLuint program, GLuint atlas, int atlas_dep
     glBindTextureUnit(0, atlas);
     glUniformMatrix4fv(glGetUniformLocation(program, "vp"), 1, GL_FALSE, (const GLfloat *)g_view_proj);
     glUniform1ui(glGetUniformLocation(program, "atlas_depth"), (u32)atlas_depth);
+    glUniform4f(glGetUniformLocation(program, "eye_pos_light"), g_eye_pos.x, g_eye_pos.y, g_eye_pos.z, 0.5f);
 
     static GLuint empty_vao = GL_NONE;
     if (empty_vao == GL_NONE)
         glGenVertexArrays(1, &empty_vao);
     glBindVertexArray(empty_vao);
 
-    mesh_batch_multidraw(w->batch, 0, 1);
+    mesh_buffer_multidraw(w->batch, 0, 1);
 }
 
 void gfx_enable_lines(bool enable) {
@@ -160,7 +174,7 @@ void dbg_line(vec3 start, vec3 end, col32_t color) {
     l_count++;
 }
 
-void dbg_aabb(vec3 min, vec3 max, col32_t color) {
+void dbg_aabb(aabb_t a, col32_t color) {
 
     if (l_count >= l_cap - 1 || !g_lines_enabled)
         return;
@@ -168,7 +182,7 @@ void dbg_aabb(vec3 min, vec3 max, col32_t color) {
     static const vec3 BOX_CORNERS[8] = {{0, 0, 0}, {1, 0, 0}, {1, 0, 1}, {0, 0, 1}, {0, 1, 0}, {1, 1, 0}, {1, 1, 1}, {0, 1, 1}};
     vec3 corners[8];
     for (int i = 0; i < 8; i++) {
-        corners[i] = (vec3){BOX_CORNERS[i].x * (max.x - min.x) + min.x, BOX_CORNERS[i].y * (max.y - min.y) + min.y, BOX_CORNERS[i].z * (max.z - min.z) + min.z};
+        corners[i] = (vec3){BOX_CORNERS[i].x * (a.max.x - a.min.x) + a.min.x, BOX_CORNERS[i].y * (a.max.y - a.min.y) + a.min.y, BOX_CORNERS[i].z * (a.max.z - a.min.z) + a.min.z};
     }
 
     int j = (4 - 1);
@@ -183,7 +197,7 @@ void dbg_aabb(vec3 min, vec3 max, col32_t color) {
 void dbg_cube(vec3 pos, vec3 ext, col32_t color) {
     vec3 min = v3_sub(pos, ext);
     vec3 max = v3_add(pos, ext);
-    dbg_aabb(min, max, color);
+    dbg_aabb((aabb_t){min, max}, color);
 }
 
 void dbg_fade(bool enable) {

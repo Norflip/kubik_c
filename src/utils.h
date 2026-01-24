@@ -1,11 +1,13 @@
 #ifndef UTILS_H
 #define UTILS_H
 #include "maf.h"
-#include <stdint.h>
 #include <assert.h>
+#include <stdint.h>
+#include <stdlib.h>
 
 // TODO: remove?
 typedef uint8_t u8;
+typedef uint16_t u16;
 typedef uint32_t u32;
 typedef uint64_t u64;
 
@@ -22,10 +24,10 @@ typedef uint64_t u64;
 #define u_index_zxy2(x, y, z, lx, ly) ((z) + ((x) * (ly)) + ((y) * (lx) * (ly)))
 
 #define KB(x) ((x) * 1024)
-#define MB(x) ((x) * 1024 * 1024)
+#define MB(x) (KB(x) * 1024)
 
 // colors
-typedef uint32_t col32_t;
+typedef u32 col32_t;
 #define C32_WHITE 0xFFFFFFFF
 #define C32_BLACK 0x000000FF
 #define C32_RED 0xFF0000FF

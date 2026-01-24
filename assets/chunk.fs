@@ -4,6 +4,7 @@
 
 uniform sampler2DArray atlas_texarr;
 layout(location = 3) uniform uint atlas_depth;
+layout(location = 4) uniform vec4 eye_pos_light; // x,y,z = eye pos, w = light level
 
 const vec3 normal_lookup[6] = {
 vec3(0, 1, 0), vec3(0, - 1, 0), vec3(1, 0, 0), vec3(- 1, 0, 0), vec3(0, 0, 1), vec3(0, 0, - 1) };
@@ -15,6 +16,7 @@ in VSOut {
     vec2 uv;
     float ao;
     float light_test;
+    vec3 world_pos;
 } inData;
 
 
@@ -32,10 +34,17 @@ vec3 get_array_uv(vec2 uv, uint layer, uint cap) {
     return vec3(uv, max(0, min(float(cap - 1), floor(float(layer) + 0.5))));
 }
 
+vec4 calculate_eye_point_light(vec3 world_pos) {
+    float distance = length(eye_pos_light.xyz - world_pos);
+    float attenuation = 1.0 / (1.0 + 0.1 * distance + 0.01 * distance * distance);
+    return vec4(eye_pos_light.w * attenuation);
+}
+
 void main() {
     vec3 normal = normal_lookup[inData.face];
     vec3 array_uv = get_array_uv(inData.uv, inData.texIndex, atlas_depth);
     vec4 color = texture(atlas_texarr, array_uv);
+    vec4 final_color = color;
 
     const float dir_shadow_strength = 0.4;
     vec3 sun_dir = normalize(vec3(1.0, 1.0, 1.0));
@@ -51,14 +60,16 @@ void main() {
     return;
     #endif
 
-    const float AMBIENT_LIGHT = 0.2;
+    float eye_light = calculate_eye_point_light(inData.world_pos).r;    
+    const float AMBIENT_LIGHT = 0.05;
 
-    color.rgb *= (1.0 - dir_shadow_strength)  + dir_shadow_strength * ndots;
-    color.rgb *= clamp(inData.light_test + AMBIENT_LIGHT, 0.0, 1.0);
-    color.rgb *= inData.ao * 1.2;
+    final_color.rgb *= (1.0 - dir_shadow_strength)  + dir_shadow_strength * ndots;
+    final_color.rgb *= clamp(inData.light_test + AMBIENT_LIGHT, 0.0, 1.0);
+    final_color.rgb *= inData.ao * 1.2;
 
     vec4 tint = unpack_color(inData.tint);
-    color = mix(color, tint, tint.a);
+    final_color = mix(final_color, tint, tint.a);
+    final_color = mix(final_color, color, eye_light);
 
-    frag_color = vec4(clamp(color.rgb, 0, 1), 1.0);
+    frag_color = vec4(clamp(final_color.rgb, 0, 1), 1.0);
 }

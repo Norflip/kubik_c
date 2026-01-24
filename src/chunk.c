@@ -12,6 +12,8 @@
     assert(c->_canary0 == C_CANARY && "Chunk canary0 mismatch"); \
     assert(c->_canary1 == C_CANARY && "Chunk canary1 mismatch");
 
+#define TMP_LIGHT_MASK 31 // (1 << 5) - 1
+
 static inline int get_index(int x, int y, int z) {
     return u_index_zxy(x + 1, y + 1, z + 1, C_SIZEP);
 }
@@ -22,9 +24,8 @@ void chunk_initialize(struct chunk *c, ivec3 pos, enum chunk_flag flags) {
     c->_canary0 = C_CANARY;
     c->_canary1 = C_CANARY;
     c->tint = C32_CLEAR;
-
-    c->min = (vec3){c->pos.x * C_SIZE, c->pos.y * C_SIZE, c->pos.z * C_SIZE};
-    c->max = v3_addf(c->min, C_SIZE);
+    c->bounds.min = (vec3){c->pos.x * C_SIZE, c->pos.y * C_SIZE, c->pos.z * C_SIZE};
+    c->bounds.max = v3_addf(c->bounds.min, C_SIZE);
 
     c->blocks = NULL;
     c->state = C_STATE_EMPTY;
@@ -288,11 +289,16 @@ bool chunk_set_block(struct chunk *c, int x, int y, int z, block_t block, bool p
     return true;
 }
 
+struct block_state *chunk_get_block_state(struct chunk *c, int x, int y, int z) {
+    ASSERT_CHUNK(c);
+    if (c->blocks == NULL || !pos_inside_padded(x, y, z))
+        return NULL;
+    return &c->blocks[get_index(x, y, z)];
+}
+
 block_t chunk_get_block(struct chunk *c, int x, int y, int z) {
     ASSERT_CHUNK(c);
-    if (!pos_inside_padded(x, y, z))
-        return BLK_AIR;
-    if (c->blocks == NULL)
+    if (c->blocks == NULL || !pos_inside_padded(x, y, z))
         return BLK_AIR;
     return c->blocks[get_index(x, y, z)].block;
 }
@@ -373,6 +379,192 @@ static void get_face_ao(struct chunk *c, int x, int y, int z, int face, uint8_t 
     *flip = !((ao_out[0] + ao_out[2] < ao_out[1] + ao_out[3]));
 }
 
+static inline vec3 light_to_vec3(light_t light) {
+    float l = (float)(light) / (float)TMP_LIGHT_MASK;
+    return (vec3){l, l, l};
+}
+
+static inline light_t vec3_to_light(vec3 v) {
+    float l = v.x; // assuming r=g=b right now
+    int il = (int)(l * (float)TMP_LIGHT_MASK);
+    if (il < 0)
+        il = 0;
+    if (il > TMP_LIGHT_MASK)
+        il = TMP_LIGHT_MASK;
+    return (light_t)(il);
+}
+
+// light_t is a uint32_t with 5 bits of light information (0-31)
+
+static light_t mul_light_f(light_t light, float factor) {
+    // 0 -1
+    float l = (float)(light & TMP_LIGHT_MASK) / (float)TMP_LIGHT_MASK;
+    l *= factor;
+    uint32_t il = (uint32_t)(l * (float)TMP_LIGHT_MASK);
+    if (il > TMP_LIGHT_MASK)
+        il = TMP_LIGHT_MASK;
+    return (light_t)(il);
+}
+
+static light_t sample_light(struct chunk *c, int x, int y, int z, int face) {
+
+    chunk_iterator_t it = chunk_iterator_make(c, x, y, z);
+    const int SAMPLES = 3;
+    light_t samples[SAMPLES];
+    int samples_collected = 0;
+
+    chunk_iterator_move(&it, face);
+    struct block_state *state = chunk_iterator_get_block_state_ptr(&it);
+    light_t first_light = state->light;
+
+    for (int i = 0; i < SAMPLES; i++) {
+        if (state == NULL || block_is_solid(state->block)) {
+            break; // Stop sampling once we hit something solid
+        } else {
+            samples[i] = state->light;
+            samples_collected++;
+        }
+
+        chunk_iterator_move(&it, face);
+        state = chunk_iterator_get_block_state_ptr(&it);
+    }
+
+    // Need at least 2 samples to calculate gradient
+    if (samples_collected < 2) {
+        return first_light;
+    }
+
+    // Calculate average gradient across all sample pairs
+    float total_gradient = 0.0f;
+    for (int i = 1; i < samples_collected; i++) {
+        float step_gradient = ((float)samples[i] - (float)samples[i - 1]) / (float)TMP_LIGHT_MASK;
+        total_gradient += step_gradient;
+    }
+
+    float gradient = total_gradient / (float)(samples_collected - 1);
+
+    // Use gradient directly as facing factor
+    // Map gradient [-1, 1] to facing_factor [0.4, 1.0]
+    float facing_factor = 0.7f + (gradient * 0.3f);
+
+    // Clamp to reasonable range
+    if (facing_factor < 0.4f)
+        facing_factor = 0.4f;
+    if (facing_factor > 1.0f)
+        facing_factor = 1.0f;
+
+    return mul_light_f(first_light, facing_factor);
+}
+
+static light_t sample_light2(struct chunk *c, int x, int y, int z, int face) {
+
+    chunk_iterator_t it = chunk_iterator_make(c, x, y, z);
+#if 0
+    const int num_samples = 3;
+    light_t samples[num_samples];
+    int samples_collected = 0;
+
+    chunk_iterator_move(&it, face);
+    struct block_state *state = chunk_iterator_get_block_state_ptr(&it);
+    light_t first_light = state->light;
+
+    for (int i = 0; i < num_samples; i++) {
+        // stop if we hit a solid block
+        if (state == NULL || block_is_solid(state->block)) {
+            samples[i] = 0;
+        } else {
+            samples[i] = state->light;
+            samples_collected++;
+        }
+
+        chunk_iterator_move(&it, face);
+        state = chunk_iterator_get_block_state_ptr(&it);
+    }
+
+    // Calculate gradient (difference between furthest and nearest sample)
+    float light_start = (float)samples[0] / TMP_LIGHT_MASK;
+    float light_end = (float)samples[num_samples - 1] / TMP_LIGHT_MASK;
+    /*
+    float gradient = light_end - light_start;
+*/
+
+    if (light_start == 0.0f && light_end == 0.0f)
+        return first_light;
+
+    float total_gradient = 0.0f;
+    for (int i = 1; i < samples_collected; i++) {
+        float l1 = (float)samples[i - 1] / TMP_LIGHT_MASK;
+        float l2 = (float)samples[i] / TMP_LIGHT_MASK;
+        total_gradient += (l2 - l1);
+    }
+
+    float avg_gradient = total_gradient / (samples_collected - 1);
+    float shade_factor = 0.0f;
+
+    // Determine shade factor based on gradient
+    // Positive gradient = facing light source (brighter ahead)
+    // Negative gradient = facing away from light (darker ahead)
+    if (avg_gradient  > 0.0f) {
+        // Facing light source - less shading needed
+        shade_factor = 1.0f - (avg_gradient * 0.3f); // Adjust multiplier
+    } else {
+        // Facing away from light - more shading
+        shade_factor = 1.0f + (avg_gradient * 0.5f); // Adjust multiplier
+    }
+
+    // Clamp shade factor to reasonable range
+    shade_factor = fmaxf(0.4f, fminf(1.0f, shade_factor));
+    printf("Gradient: %.3f (start: %.3f, end: %.3f, samples: %d)\n", avg_gradient, light_start, light_end, samples_collected);
+    return mul_light_f(first_light, shade_factor);
+#else
+
+    const int SAMPLES = 2;
+    light_t samples[SAMPLES];
+    int samples_collected = 0;
+
+    chunk_iterator_move(&it, face);
+    struct block_state *state = chunk_iterator_get_block_state_ptr(&it);
+    light_t first_light = state->light;
+
+    for (int i = 0; i < SAMPLES; i++) {
+        // stop if we hit a solid block
+        if (state == NULL || block_is_solid(state->block)) {
+            samples[i] = 0;
+        } else {
+            samples[i] = state->light;
+            samples_collected++;
+        }
+
+        chunk_iterator_move(&it, face);
+        state = chunk_iterator_get_block_state_ptr(&it);
+    }
+
+    // if (samples_collected <= 1)
+    //     return first_light;
+
+    light_t second_light = samples[SAMPLES - 1];
+    if (first_light == second_light)
+        return first_light;
+
+    float gradient = ((float)second_light - (float)first_light) / (float)TMP_LIGHT_MASK;
+    float shade_factor = 0.0f;
+    if (gradient < 0.0f) {
+        // Facing light source - less shading needed
+        // shade_factor = 1.0f - (gradient * 0.3f); // Adjust multiplier
+        shade_factor = 1.0f;
+    } else {
+        // Facing away from light - more shading
+        // shade_factor = 1.0f + (gradient * 0.5f); // Adjust multiplier
+        shade_factor = 0.2f;
+    }
+
+    // Clamp shade factor to reasonable range
+    // shade_factor = fmaxf(0.4f, fminf(1.0f, shade_factor));
+    return mul_light_f(first_light, shade_factor);
+
+#endif
+}
+
 size_t chunk_generate_mesh_data(struct chunk *c, void *buffer) {
     ASSERT_CHUNK(c);
     assert(buffer != NULL);
@@ -402,12 +594,12 @@ size_t chunk_generate_mesh_data(struct chunk *c, void *buffer) {
                     int oy = y + normal.y;
                     int oz = z + normal.z;
 
-                    const block_t adjacent_block = chunk_get_block(c, ox, oy, oz);
-                    if (block_create_face(block, face, adjacent_block)) {
+                    struct block_state *adjacent_state = chunk_get_block_state(c, ox, oy, oz);
+
+                    if (block_create_face(block, face, adjacent_state->block)) {
                         bool flip = false;
                         get_face_ao(c, x, y, z, face, ao, &flip);
-
-                        light_t light = c->blocks[get_index(ox, oy, oz)].light;
+                        light_t light = sample_light(c, x, y, z, face);
                         struct mesh_quad quad = make_quad(x, y, z, face, block, light, ao, flip);
                         quads[added++] = quad;
                     }
@@ -421,10 +613,8 @@ size_t chunk_generate_mesh_data(struct chunk *c, void *buffer) {
     return added;
 }
 
-#define TMP_LIGHT_MASK 31 // (1 << 5) - 1
-
 struct light_node {
-    iterator_t it;
+    chunk_iterator_t it;
     light_t light;
 };
 
@@ -464,7 +654,7 @@ static void add_floodfill_light(queue_t *q) {
     struct light_node node;
     while (!queue_empty(q)) {
         queue_dequeue(q, &node);
-        struct block_state *current_state = iterator_get_block_state_ptr(&node.it);
+        struct block_state *current_state = chunk_iterator_get_block_state_ptr(&node.it);
         if (current_state == NULL) {
             fprintf(stderr, "tmp_floodfill_light: current state is NULL at (%d, %d, %d) in chunk (%d, %d, %d)\n", node.it.x, node.it.y, node.it.z, node.it.chunk->pos.x, node.it.chunk->pos.y, node.it.chunk->pos.z);
             continue;
@@ -476,10 +666,10 @@ static void add_floodfill_light(queue_t *q) {
             continue;
 
         for (int face = 0; face < DIR_COUNT; face++) {
-            iterator_t it = node.it;
-            iterator_move(&it, face);
+            chunk_iterator_t it = node.it;
+            chunk_iterator_move(&it, face);
 
-            struct block_state *neighbour_state = iterator_get_block_state_ptr(&it);
+            struct block_state *neighbour_state = chunk_iterator_get_block_state_ptr(&it);
             if (neighbour_state == NULL) {
                 fprintf(stderr, "null neighbour block_state\n");
                 continue;
@@ -507,17 +697,17 @@ static void rem_floodfill_light(queue_t *remq, queue_t *addq) {
 
     while (!queue_empty(remq)) {
         queue_dequeue(remq, &node);
-        struct block_state *current_state = iterator_get_block_state_ptr(&node.it);
+        struct block_state *current_state = chunk_iterator_get_block_state_ptr(&node.it);
         if (current_state == NULL) {
             fprintf(stderr, "null block_state\n");
             continue;
         }
 
         for (int face = 0; face < DIR_COUNT; face++) {
-            iterator_t it = node.it;
-            iterator_move(&it, (enum dir)face);
+            chunk_iterator_t it = node.it;
+            chunk_iterator_move(&it, (enum dir)face);
 
-            struct block_state *neighbour_state = iterator_get_block_state_ptr(&it);
+            struct block_state *neighbour_state = chunk_iterator_get_block_state_ptr(&it);
             if (neighbour_state == NULL) {
                 fprintf(stderr, "null neighbour block_state\n");
                 continue;
@@ -533,7 +723,7 @@ static void rem_floodfill_light(queue_t *remq, queue_t *addq) {
                 neighbour_node.it = it;
                 neighbour_node.light = neighbour_level;
                 queue_enqueue(remq, &neighbour_node);
-            } else if ( light_greater_equal(neighbour_level, node.light)) {
+            } else if (light_greater_equal(neighbour_level, node.light)) {
                 struct light_node neighbour_node;
                 neighbour_node.it = it;
                 queue_enqueue(addq, &neighbour_node);
@@ -546,7 +736,7 @@ void add_light_tmp(struct chunk *c, int x, int y, int z) {
     queue_t add_queue = queue_make(sizeof(struct light_node), C_SIZEP3);
 
     struct light_node node;
-    node.it = iterator_make(c, x, y, z);
+    node.it = chunk_iterator_make(c, x, y, z);
     printf("Starting light update from (%d, %d, %d) in chunk (%d, %d, %d) with light %u\n", x, y, z, c->pos.x, c->pos.y, c->pos.z, node.light);
     queue_enqueue(&add_queue, &node);
     add_floodfill_light(&add_queue);
@@ -558,7 +748,7 @@ void rem_light_tmp(struct chunk *c, int x, int y, int z, light_t old_level) {
     queue_t add_queue = queue_make(sizeof(struct light_node), C_SIZEP3);
 
     struct light_node node;
-    node.it = iterator_make(c, x, y, z);
+    node.it = chunk_iterator_make(c, x, y, z);
     node.light = old_level;
     queue_enqueue(&rem_queue, &node);
 
@@ -569,8 +759,8 @@ void rem_light_tmp(struct chunk *c, int x, int y, int z, light_t old_level) {
     queue_destroy(&add_queue);
 }
 
-iterator_t iterator_make(struct chunk *c, int x, int y, int z) {
-    iterator_t it;
+chunk_iterator_t chunk_iterator_make(struct chunk *c, int x, int y, int z) {
+    chunk_iterator_t it;
     it.chunk = c;
     it.x = x;
     it.y = y;
@@ -578,7 +768,7 @@ iterator_t iterator_make(struct chunk *c, int x, int y, int z) {
     return it;
 }
 
-void iterator_up(iterator_t *it) {
+void chunk_iterator_up(chunk_iterator_t *it) {
     it->y++;
     if (it->y >= C_SIZE) {
         it->y = 0;
@@ -586,7 +776,7 @@ void iterator_up(iterator_t *it) {
     }
 }
 
-void iterator_down(iterator_t *it) {
+void chunk_iterator_down(chunk_iterator_t *it) {
     it->y--;
     if (it->y < 0) {
         it->y = C_SIZE - 1;
@@ -594,13 +784,13 @@ void iterator_down(iterator_t *it) {
     }
 }
 
-void iterator_move(iterator_t *it, enum dir dir) {
+void chunk_iterator_move(chunk_iterator_t *it, enum dir dir) {
     switch (dir) {
     case DIR_UP:
-        iterator_up(it);
+        chunk_iterator_up(it);
         break;
     case DIR_DOWN:
-        iterator_down(it);
+        chunk_iterator_down(it);
         break;
     case DIR_LEFT:
         it->x--;
@@ -635,7 +825,7 @@ void iterator_move(iterator_t *it, enum dir dir) {
     }
 }
 
-void iterator_update(iterator_t *it) {
+void chunk_iterator_update(chunk_iterator_t *it) {
     if (it->y < 0) {
         it->y = C_SIZE - 1;
         it->chunk = it->chunk->neighbours[DIR_DOWN];
@@ -661,12 +851,12 @@ void iterator_update(iterator_t *it) {
     }
 }
 
-bool iterator_is_valid(iterator_t *it) {
+bool chunk_iterator_is_valid(chunk_iterator_t *it) {
     return it->chunk != NULL && pos_inside(it->x, it->y, it->z);
 }
 
-struct block_state *iterator_get_block_state_ptr(iterator_t *it) {
-    if (!iterator_is_valid(it))
+struct block_state *chunk_iterator_get_block_state_ptr(chunk_iterator_t *it) {
+    if (!chunk_iterator_is_valid(it))
         return NULL;
     return get_block_state_ptr(it->chunk, it->x, it->y, it->z);
 }

@@ -1,10 +1,5 @@
 #ifndef PLATF_H
 #define PLATF_H
-
-// basically just a wrapper for win32 threading stuff atm
-// based on tinycthread... which we could use but this was more fun
-// no unix support yet
-
 #if _WIN32
 #    ifndef WIN32_LEAN_AND_MEAN
 #        define WIN32_LEAN_AND_MEAN
@@ -18,13 +13,6 @@
 typedef HANDLE thread_t;
 typedef CRITICAL_SECTION mutex_t;
 typedef CONDITION_VARIABLE cond_t;
-/*
-//todo
-typedef struct rwlock {
-    SRWLOCK lock;
-    int is_write;
-} rwlock_t;
-*/
 #else
 #    error Unsupported platform
 #endif
@@ -43,7 +31,7 @@ void mutex_destroy(mutex_t *mtx);
 void mutex_lock(mutex_t *mtx);
 void mutex_unlock(mutex_t *mtx);
 
-// cndition
+// condition
 int cond_init(cond_t *cnd);
 void cond_destroy(cond_t *cnd);
 void cond_wait(cond_t *cnd, mutex_t *mtx);

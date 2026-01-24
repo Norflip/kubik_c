@@ -14,14 +14,6 @@
 #define C_SIZEP2 (C_SIZEP * C_SIZEP)
 #define C_SIZEP3 (C_SIZEP * C_SIZEP * C_SIZEP)
 
-// moved to .h only so that we can get it's size in world.c... for now
-struct mesh_quad {
-    u32 pos_face; // 3*6 bits voxel pos + 3 bits face + (2*4) bits AO + 1 bit flipped = 30 bits, 2 bits remaining
-    u32 texid;
-    u32 light;
-    u32 _padding;
-};
-
 enum chunk_state { 
     C_STATE_EMPTY = 0, 
     C_STATE_GENERATING, 
@@ -35,22 +27,10 @@ enum chunk_flag {
     CHUNK_FLAG_ONLY_DATA = 1 << 1,
 };
 
-struct instance_data {
-    ivec3 pos;
-    col32_t tint;
-};
-
-typedef uint32_t light_t;
-
-struct block_state {
-    block_t block;
-    light_t light;
-};
-
 struct chunk {
     int _canary0;
     ivec3 pos;
-    vec3 min, max;
+    aabb_t bounds;
     enum chunk_state state;
     enum chunk_flag flags;
 
@@ -80,19 +60,20 @@ size_t chunk_generate_mesh_data(struct chunk *c, void *buffer);
 void add_light_tmp(struct chunk *c, int x, int y, int z);
 void rem_light_tmp(struct chunk *c, int x, int y, int z, light_t old_level);
 
-//
+// Iterator for chunk block positions, move somewhere else? 
+// rename
 typedef struct {
     struct chunk *chunk;
     int x, y, z;
-} iterator_t;
+} chunk_iterator_t;
 
-iterator_t iterator_make(struct chunk *c, int x, int y, int z);
-void iterator_up(iterator_t *it);
-void iterator_down(iterator_t *it);
-void iterator_move(iterator_t *it, enum dir dir);
-void iterator_update(iterator_t *it);
-bool iterator_is_valid(iterator_t *it);
-struct block_state *iterator_get_block_state_ptr(iterator_t *it);
+chunk_iterator_t chunk_iterator_make(struct chunk *c, int x, int y, int z);
+void chunk_iterator_up(chunk_iterator_t *it);
+void chunk_iterator_down(chunk_iterator_t *it);
+void chunk_iterator_move(chunk_iterator_t *it, enum dir dir);
+void chunk_iterator_update(chunk_iterator_t *it);
+bool chunk_iterator_is_valid(chunk_iterator_t *it);
+struct block_state *chunk_iterator_get_block_state_ptr(chunk_iterator_t *it);
 
 // Helper functions for positions
 static inline bool pos_inside(int x, int y, int z) {
